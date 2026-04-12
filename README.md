@@ -10,6 +10,8 @@
 This wrapper discovers that connection and exposes it to Codex via MCP — no Puppeteer, no Playwright,
 no separate browser instance. Just reuse what's already running.
 
+**Zero modifications to Claude's side.** The Claude in Chrome extension, the native messaging host, and Claude Code itself are completely untouched. This wrapper is a read-only consumer of the existing bridge — it discovers the socket, speaks the same protocol, and rides along.
+
 ![Claude and Codex sharing the same Chrome browser via MCP](docs/images/chrome-tabs-mcp.png)
 
 ---
@@ -17,32 +19,38 @@ no separate browser instance. Just reuse what's already running.
 ## How it works
 
 ```
-Codex ──stdio──▶ codex-chrome-bridge (MCP) ──socket──▶ Claude native host ──▶ Chrome (CiC extension)
-                        │                                       │
+                                    ┌──────────────────────────────────────────┐
+                                    │         Untouched Claude infra           │
+                                    │                                          │
+Codex ──stdio──▶ codex-chrome-bridge (MCP) ──socket──▶ Claude native host ──▶ Chrome
+                        │                                       │           (CiC extension)
                    22 MCP tools                         Existing bridge
-                   (browser_*)                          (already running)
+                   (browser_*)                       (not modified in any way)
+                                    │                                          │
+                                    └──────────────────────────────────────────┘
 ```
 
-1. **Claude Code + Claude in Chrome** establish a native-messaging bridge to Chrome
-2. **This wrapper** discovers that bridge's Unix socket and connects to it
+1. **Claude Code + Claude in Chrome** establish a native-messaging bridge to Chrome — this is their standard setup, unchanged
+2. **This wrapper** discovers that bridge's live Unix socket via process inspection and connects as a second consumer
 3. **Codex** sees 22 browser tools through a standard MCP interface
-4. No new browser instance, no new extension, no new permissions — just reuse
+4. No patches, no forks, no extension modifications, no config changes to Claude — just discovery and reuse
 
-**Why this matters**: Instead of building yet another browser automation stack, this project proves that Codex can piggyback on Claude Code's existing browser integration with zero additional infrastructure.
+**Why this matters**: This project does not build a browser automation stack. It proves that a third-party tool (Codex) can consume Claude Code's existing browser bridge without touching a single file on the Claude side. The entire wrapper is an unintrusive observer that speaks the same native-messaging protocol.
 
 ---
 
 ## What makes this different
 
-|                          | Typical browser MCP            | codex-chrome-bridge               |
-|--------------------------|--------------------------------|-----------------------------------|
-| **Browser instance**     | Spawns its own                 | Reuses your existing Chrome       |
-| **Extension required**   | Usually its own                | Claude in Chrome (already there)  |
-| **Login sessions**       | Separate (must re-login)       | Shares your existing sessions     |
-| **Tab management**       | Independent                    | Uses CiC's managed tab groups     |
-| **Permission model**     | Varies                         | CiC's permission choreography     |
-| **Dependencies**         | Playwright / Puppeteer / etc.  | Zero (Node.js built-ins only)     |
-| **Setup**                | Install + configure + launch   | Discover + connect                |
+|                              | Typical browser MCP            | codex-chrome-bridge                   |
+|------------------------------|--------------------------------|---------------------------------------|
+| **Modifies Claude/extension**| N/A                            | No — zero changes to Claude's side    |
+| **Browser instance**         | Spawns its own                 | Reuses your existing Chrome           |
+| **Extension required**       | Usually its own                | Claude in Chrome (already installed)  |
+| **Login sessions**           | Separate (must re-login)       | Shares your existing sessions         |
+| **Tab management**           | Independent                    | Uses CiC's managed tab groups         |
+| **Permission model**         | Varies                         | CiC's permission choreography         |
+| **Dependencies**             | Playwright / Puppeteer / etc.  | Zero (Node.js built-ins only)         |
+| **Setup**                    | Install + configure + launch   | Discover + connect                    |
 
 ---
 
