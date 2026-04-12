@@ -4,13 +4,14 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/Node.js-24%2B-green.svg)](https://nodejs.org)
 
-> MCP server that lets Codex control Chrome through the same bridge Claude Code already uses.
+> Use Codex with the same Chrome path Claude in Chrome already uses — without patching Claude's side.
 
-**The idea**: Claude Code + Claude in Chrome already have a working browser connection on your machine.
-This wrapper discovers that connection and exposes it to Codex via MCP — no Puppeteer, no Playwright,
-no separate browser instance. Just reuse what's already running.
+**The idea**: if Claude in Chrome already works on your machine, this wrapper lets Codex ride the same path.
+No Puppeteer, no Playwright, no forked extension, no second browser instance — just reuse the browser connection that already exists.
 
-**Zero modifications to Claude's side.** The Claude in Chrome extension, the native messaging host, and Claude Code itself are completely untouched. This wrapper is a read-only consumer of the existing bridge — it discovers the socket, speaks the same protocol, and rides along.
+**Zero modifications to Claude's side.** The Claude in Chrome extension, the native messaging host, and Claude Code itself are left untouched. This wrapper is a read-only consumer of the existing bridge: it discovers the live socket, speaks the same protocol, and rides along without patching your Claude setup.
+
+**Why that matters operationally**: you keep your existing Chrome profile, existing logged-in sessions, and existing CiC setup. If this wrapper breaks, you fix or stop the wrapper repo — not your Claude installation. You also do **not** need to keep a Claude Code terminal session open while using the MCP; the existing local CiC/native-host runtime just needs to be present on the machine.
 
 ![Claude and Codex sharing the same Chrome browser via MCP](docs/images/chrome-tabs-mcp.png)
 
@@ -30,12 +31,12 @@ Codex ──stdio──▶ codex-chrome-bridge (MCP) ──socket──▶ Claud
                                     └──────────────────────────────────────────┘
 ```
 
-1. **Claude Code + Claude in Chrome** establish a native-messaging bridge to Chrome — this is their standard setup, unchanged
+1. **Claude in Chrome + the local Claude native-host runtime** establish the browser bridge that already exists on your machine
 2. **This wrapper** discovers that bridge's live Unix socket via process inspection and connects as a second consumer
 3. **Codex** sees 22 browser tools through a standard MCP interface
-4. No patches, no forks, no extension modifications, no config changes to Claude — just discovery and reuse
+4. No patches, no forks, no extension modifications, no Claude-side config rewrites — just discovery and reuse
 
-**Why this matters**: This project does not build a browser automation stack. It proves that a third-party tool (Codex) can consume Claude Code's existing browser bridge without touching a single file on the Claude side. The entire wrapper is an unintrusive observer that speaks the same native-messaging protocol.
+**Why this matters**: this project does not build a separate browser automation stack. It lets Codex coexist with your existing Claude-in-Chrome path while keeping blast radius low: the wrapper is the moving part, not your Claude setup.
 
 ---
 
@@ -44,10 +45,12 @@ Codex ──stdio──▶ codex-chrome-bridge (MCP) ──socket──▶ Claud
 |                              | Typical browser MCP            | codex-chrome-bridge                   |
 |------------------------------|--------------------------------|---------------------------------------|
 | **Modifies Claude/extension**| N/A                            | No — zero changes to Claude's side    |
+| **Needs Claude terminal open** | Varies                      | No — not during normal MCP use        |
 | **Browser instance**         | Spawns its own                 | Reuses your existing Chrome           |
 | **Extension required**       | Usually its own                | Claude in Chrome (already installed)  |
 | **Login sessions**           | Separate (must re-login)       | Shares your existing sessions         |
 | **Tab management**           | Independent                    | Uses CiC's managed tab groups         |
+| **Rollback cost**            | Often medium                   | Low — stop the wrapper, Claude side stays as-is |
 | **Permission model**         | Varies                         | CiC's permission choreography         |
 | **Dependencies**             | Playwright / Puppeteer / etc.  | Zero (Node.js built-ins only)         |
 | **Setup**                    | Install + configure + launch   | Discover + connect                    |
@@ -58,7 +61,7 @@ Codex ──stdio──▶ codex-chrome-bridge (MCP) ──socket──▶ Claud
 
 - **macOS** (native-messaging path is macOS-specific for now)
 - **Node.js 24+**
-- **Claude Code** installed and working
+- **Existing Claude in Chrome/native-host runtime** present on the machine
 - **Claude in Chrome** extension active in Chrome
 - Chrome running with at least one tab
 
@@ -86,6 +89,8 @@ codex-chrome-bridge probe
 
 You should see `connect_ok: true` and `status_ok: true`.
 
+This confirms that the existing CiC/native-host path is live. It does **not** require you to keep a Claude Code terminal session open.
+
 ### 3. Start the MCP server
 
 ```bash
@@ -100,6 +105,8 @@ The server listens on stdin/stdout using JSON-RPC 2.0 (MCP protocol).
 npx codex-chrome-bridge validate     # prompt-safe, no popups
 npx codex-chrome-bridge validate --live-browser  # full browser sweep
 ```
+
+If you stop using the wrapper, your Claude side stays untouched: no extension patch to roll back, no forked host to uninstall, no browser profile rewrite to undo.
 
 ---
 
