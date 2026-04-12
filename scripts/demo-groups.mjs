@@ -42,6 +42,28 @@ function extractText(result) {
     .join('\n');
 }
 
+function structuredOrText(response) {
+  return response?.result?.structuredContent ?? extractText(response?.result);
+}
+
+function findBootstrapTabId(browserContext) {
+  const tabs = browserContext?.availableTabs;
+  if (!Array.isArray(tabs)) {
+    return null;
+  }
+
+  for (const tab of tabs) {
+    if (
+      Number.isFinite(Number(tab?.tabId)) &&
+      String(tab?.url ?? '') === 'chrome://newtab/'
+    ) {
+      return Number(tab.tabId);
+    }
+  }
+
+  return null;
+}
+
 class JsonRpcClient {
   constructor(child) {
     this.child = child;
@@ -150,14 +172,25 @@ async function startGroup(spec) {
     name: 'browser_tabs_context',
     arguments: { createIfEmpty: true },
   });
+  const tabsContextData = structuredOrText(tabsContext);
+  const bootstrapTabId = findBootstrapTabId(tabsContextData?.browser_context);
 
   const opened = [];
-  for (const url of spec.urls) {
+  for (const [index, url] of spec.urls.entries()) {
+    if (index === 0 && bootstrapTabId) {
+      const response = await client.request('tools/call', {
+        name: 'browser_navigate_tab',
+        arguments: { tabId: bootstrapTabId, url },
+      });
+      opened.push(structuredOrText(response));
+      continue;
+    }
+
     const response = await client.request('tools/call', {
       name: 'browser_open_or_focus',
       arguments: { url },
     });
-    opened.push(response.result?.structuredContent ?? extractText(response.result));
+    opened.push(structuredOrText(response));
   }
 
   await delay(2500);
@@ -166,6 +199,7 @@ async function startGroup(spec) {
     name: 'browser_snapshot',
     arguments: {},
   });
+  const snapshotData = structuredOrText(snapshot);
 
   return {
     child,
@@ -173,9 +207,9 @@ async function startGroup(spec) {
     info: {
       label: spec.label,
       pid: child.pid,
-      tabsContext: tabsContext.result?.structuredContent ?? extractText(tabsContext.result),
+      tabsContext: tabsContextData,
       opened,
-      snapshot: snapshot.result?.structuredContent ?? extractText(snapshot.result),
+      snapshot: snapshotData,
     },
   };
 }
