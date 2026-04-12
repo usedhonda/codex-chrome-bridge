@@ -1,0 +1,10 @@
+[
+  {
+    "type": "text",
+    "text": "{\"availableTabs\":[{\"tabId\":1256944467,\"title\":\"New Tab\",\"url\":\"chrome://newtab/\"}],\"tabGroupId\":2049703724}"
+  },
+  {
+    "type": "text",
+    "text": "\n\nTab Context:\n- Available tabs:\n  • tabId 1256944467: \"New Tab\" (chrome://newtab/)"
+  }
+]

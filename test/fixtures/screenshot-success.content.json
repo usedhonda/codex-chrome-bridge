@@ -1,0 +1,13 @@
+[
+  {
+    "type": "text",
+    "text": "Successfully captured screenshot (1280x720, image/png) - ID: ss_fixture123"
+  },
+  {
+    "type": "image",
+    "source": {
+      "media_type": "image/png",
+      "data": "ZmFrZS1wbmctYnl0ZXM="
+    }
+  }
+]

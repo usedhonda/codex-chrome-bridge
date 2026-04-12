@@ -1,0 +1,18 @@
+{
+  "name": "codex-chrome-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "probe": "node ./src/bridge.js probe",
+    "mcp": "node ./src/bridge.js mcp",
+    "compat": "node ./scripts/check-compatibility.mjs",
+    "test": "node --test ./test/*.test.mjs",
+    "validate": "node ./scripts/validate-bridge.mjs",
+    "validate:live": "node ./scripts/validate-bridge.mjs --live-browser",
+    "release:gate": "node ./scripts/release-gate.mjs",
+    "release:gate:live": "node ./scripts/release-gate.mjs --include-live",
+    "codex:bridge": "node ./scripts/run-codex-with-bridge.mjs",
+    "codex:bridge:exec": "node ./scripts/run-codex-with-bridge.mjs exec"
+  }
+}

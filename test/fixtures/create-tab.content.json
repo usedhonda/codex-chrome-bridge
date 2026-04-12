@@ -1,0 +1,10 @@
+[
+  {
+    "type": "text",
+    "text": "Created new tab. Tab ID: 1256944468"
+  },
+  {
+    "type": "text",
+    "text": "\n\nTab Context:\n- Executed on tabId: 1256944468\n- Available tabs:\n  • tabId 1256944467: \"新しいタブ\" (chrome://newtab/)\n  • tabId 1256944468: \"新しいタブ\" ()"
+  }
+]

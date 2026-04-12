@@ -1,0 +1,33 @@
+{
+  "policy": {
+    "mode": "latest-tracking",
+    "releaseBar": "power-user-beta",
+    "notes": [
+      "Wrapper-only support posture.",
+      "Fail closed on missing contract markers.",
+      "Launcher/live skew is warning-level unless behavior also diverges."
+    ]
+  },
+  "requiredContractMarkers": [
+    "execute_tool",
+    "native_messaging_source",
+    "tool_use_id",
+    "domain_transition",
+    "skip_all_permission_checks",
+    "tabs_context_mcp"
+  ],
+  "validatedBaselines": [
+    {
+      "name": "2026-04-12-local-baseline",
+      "extensionVersion": "1.0.66",
+      "launcherVersion": "2.1.104",
+      "liveHostVersion": "2.1.104",
+      "status": "validated",
+      "notes": [
+        "Prompt-safe release gate passed.",
+        "Live validator passed separately in the same environment.",
+        "Full release:gate:live passed after broadening hover validation to accept the observed hover-event family."
+      ]
+    }
+  ]
+}

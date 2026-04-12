@@ -1,0 +1,11 @@
+# >>> project-bootstrap managed >>>
+.cc-status-bar.voice.json
+.DS_Store
+.agent/tmp/
+.agent/
+.local/
+.codex/config.toml
+AGENTS.md
+CLAUDE.md
+docs/log/codex/
+# <<< project-bootstrap managed <<<
