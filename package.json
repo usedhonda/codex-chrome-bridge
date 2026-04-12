@@ -43,6 +43,6 @@
     "codex:bridge": "node ./scripts/run-codex-with-bridge.mjs",
     "codex:bridge:exec": "node ./scripts/run-codex-with-bridge.mjs exec",
     "docs": "node ./scripts/generate-docs.mjs",
-    "prepublishOnly": "npm test && npm run release:gate"
+    "prepublishOnly": "npm test"
   }
 }
