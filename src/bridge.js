@@ -103,6 +103,10 @@ function safeJsonParse(text) {
   }
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 const DEFAULT_MANIFEST_PATH = path.join(
   HOME,
   'Library',
@@ -380,6 +384,14 @@ function contentSignalsMissingTabGroup(content = []) {
     (text) =>
       text.includes('No tab group exists for this session') ||
       text.includes('No MCP tab groups found'),
+  );
+}
+
+function responseSignalsTabsBusy(response) {
+  const text = response?.error?.content;
+  return (
+    typeof text === 'string' &&
+    text.includes('Tabs cannot be edited right now')
   );
 }
 
@@ -944,10 +956,26 @@ class ClaudeChromeAdapter {
     return this.executeToolWithRecovery(tool, args, timeoutMs, false);
   }
 
-  async executeToolWithRecovery(tool, args, timeoutMs, attemptedRecovery) {
+  async executeToolWithRecovery(
+    tool,
+    args,
+    timeoutMs,
+    attemptedRecovery,
+    attemptedBusyRetry = false,
+  ) {
     const response = await this.client.executeTool(tool, args, timeoutMs);
 
     if (response.error) {
+      if (!attemptedBusyRetry && responseSignalsTabsBusy(response)) {
+        await delay(350);
+        return this.executeToolWithRecovery(
+          tool,
+          args,
+          timeoutMs,
+          attemptedRecovery,
+          true,
+        );
+      }
       throw new BridgeError('tool_call', response.error.content ?? 'tool failed', {
         tool,
         args,
@@ -975,7 +1003,13 @@ class ClaudeChromeAdapter {
         this.updateSessionScopeFromBrowserContext(
           findStructuredJson(recoveryProbe.result?.content ?? recoveryProbe.content ?? []),
         );
-        return this.executeToolWithRecovery(tool, args, timeoutMs, true);
+        return this.executeToolWithRecovery(
+          tool,
+          args,
+          timeoutMs,
+          true,
+          attemptedBusyRetry,
+        );
       }
     }
 
