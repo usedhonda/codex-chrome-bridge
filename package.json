@@ -1,8 +1,36 @@
 {
   "name": "codex-chrome-bridge",
   "version": "0.1.0",
-  "private": true,
+  "description": "MCP server that lets Codex control Chrome through Claude Code's existing browser bridge",
   "type": "module",
+  "main": "src/bridge.js",
+  "bin": {
+    "codex-chrome-bridge": "src/bridge.js"
+  },
+  "files": [
+    "src/bridge.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "keywords": [
+    "mcp",
+    "codex",
+    "claude",
+    "chrome",
+    "browser-automation",
+    "claude-in-chrome",
+    "model-context-protocol"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/usedhonda/codex-chrome-bridge.git"
+  },
+  "homepage": "https://github.com/usedhonda/codex-chrome-bridge",
+  "bugs": "https://github.com/usedhonda/codex-chrome-bridge/issues",
+  "license": "MIT",
   "scripts": {
     "probe": "node ./src/bridge.js probe",
     "mcp": "node ./src/bridge.js mcp",
@@ -13,6 +41,8 @@
     "release:gate": "node ./scripts/release-gate.mjs",
     "release:gate:live": "node ./scripts/release-gate.mjs --include-live",
     "codex:bridge": "node ./scripts/run-codex-with-bridge.mjs",
-    "codex:bridge:exec": "node ./scripts/run-codex-with-bridge.mjs exec"
+    "codex:bridge:exec": "node ./scripts/run-codex-with-bridge.mjs exec",
+    "docs": "node ./scripts/generate-docs.mjs",
+    "prepublishOnly": "npm test && npm run release:gate"
   }
 }

@@ -7,5 +7,6 @@
 .codex/config.toml
 AGENTS.md
 CLAUDE.md
-docs/log/codex/
+docs/log/
+docs/ask/
 # <<< project-bootstrap managed <<<

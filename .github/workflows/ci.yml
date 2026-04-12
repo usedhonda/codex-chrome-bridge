@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Run tests
+        run: npm test
+
+      - name: Check generated docs are up to date
+        run: |
+          npm run docs
+          git diff --exit-code README.md || {
+            echo "ERROR: README.md tool table is out of date. Run 'npm run docs' and commit."
+            exit 1
+          }
+
+      - name: Pack dry-run
+        run: npm pack --dry-run
