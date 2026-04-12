@@ -10,6 +10,8 @@
 This wrapper discovers that connection and exposes it to Codex via MCP — no Puppeteer, no Playwright,
 no separate browser instance. Just reuse what's already running.
 
+![Claude and Codex sharing the same Chrome browser via MCP](docs/images/chrome-tabs-mcp.png)
+
 ---
 
 ## How it works
