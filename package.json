@@ -38,6 +38,7 @@
     "test": "node --test ./test/*.test.mjs",
     "validate": "node ./scripts/validate-bridge.mjs",
     "validate:live": "node ./scripts/validate-bridge.mjs --live-browser",
+    "demo:workflow": "node ./scripts/demo-read-computer-js.mjs",
     "release:gate": "node ./scripts/release-gate.mjs",
     "release:gate:live": "node ./scripts/release-gate.mjs --include-live",
     "codex:bridge": "node ./scripts/run-codex-with-bridge.mjs",
