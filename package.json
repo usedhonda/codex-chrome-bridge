@@ -1,6 +1,6 @@
 {
   "name": "codex-chrome-bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server that lets Codex control Chrome through Claude Code's existing browser bridge",
   "type": "module",
   "main": "src/bridge.js",
