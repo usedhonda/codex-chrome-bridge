@@ -91,6 +91,15 @@ Use it for:
 - making release drift visible in code review
 - deciding whether a new Anthropic update needs parser or compatibility work
 
+### Baseline expansion strategy
+
+- Today the matrix has a single validated baseline because only one local Anthropic version line has been re-validated end to end.
+- The intended path is:
+  1. keep one honest baseline rather than fake breadth
+  2. add a second baseline when the installed Anthropic launcher/extension version actually changes
+  3. keep notes per baseline for prompt-safe gate, live gate, and any tool-level caveats
+- Until a second real version line exists, the repo prefers one strong baseline plus explicit drift policy over pretending to have multi-version coverage it has not earned.
+
 ## Drift response
 
 `npm run compat` now emits a machine-readable `decision` block as well as raw checks.

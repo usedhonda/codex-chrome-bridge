@@ -36,6 +36,12 @@ Codex ──stdio──▶ codex-chrome-bridge (MCP) ──socket──▶ Claud
 3. **Codex** sees 22 browser tools through a standard MCP interface
 4. No patches, no forks, no extension modifications, no Claude-side config rewrites — just discovery and reuse
 
+Inside that wrapper, the browser surface now carries a little more local orchestration state than a bare tool proxy:
+
+- session context stays coherent across tools
+- result envelopes include concise bridge-style summaries
+- some results also include a thin handoff hint for the next likely tool call
+
 **Why this matters**: this project does not build a separate browser automation stack. It lets Codex coexist with your existing Claude-in-Chrome path while keeping blast radius low: the wrapper is the moving part, not your Claude setup. In day-to-day use, that means you can launch Codex and use the browser tools without also babysitting a separate Claude Code terminal.
 
 ---
@@ -239,6 +245,7 @@ In this mode, the browser workflow is still **Codex-driven**. You are not expect
 - **Single file** — `src/bridge.js` (~2900 lines), no build step, no transpilation
 - **Socket discovery** — finds the live native-host socket via `ps` process inspection
 - **Session scoping** — each MCP session gets its own `sessionId` and `displayName`
+- **Local orchestration hints** — result envelopes carry normalized session state, bridge-style summaries, and thin next-step handoff hints
 - **Image caching** — screenshot LRU cache (max 24) for `browser_upload_image` reuse
 - **Protocol negotiation** — supports MCP protocol versions `2025-06-18`, `2025-03-26`, `2024-11-05`
 

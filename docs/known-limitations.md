@@ -45,6 +45,7 @@ Practical consequence:
 
 - this wrapper can expose and drive the browser tools, but it will not automatically inherit every “Claude Code feels smoother” behavior just by speaking to the same browser bridge
 - getting closer to original Claude Code behavior requires more reverse engineering of the bridge-side orchestration layer, not only adding more browser tools
+- the wrapper now has better local parity helpers (session context, result summaries, handoff hints), but those are still local wrapper behavior, not bridge-server parity
 
 More concretely:
 
