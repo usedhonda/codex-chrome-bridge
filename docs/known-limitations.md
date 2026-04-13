@@ -29,6 +29,9 @@ This project reuses the existing Claude in Chrome/native-host browser path, but 
 Observed source-level differences:
 
 - the installed extension's native-messaging entrypoint hard-codes `source: "native-messaging"` for tool execution
+- the original in-product path enters from the sidepanel/window-session workflow, not from native messaging alone
+- that sidepanel path carries higher-level state such as prompt population, selected model, attachments, window session IDs, and skip-permission/session UI state
+- bridge-originated tool calls are sent through a separate `source: "bridge"` branch that reports `tool_result` / `permission_request` events over the bridge channel
 - the bridge-only path has extra orchestration knobs such as `permissionMode`, `allowedDomains`, and custom prompt handling that are not forwarded through native messaging
 - the original CiC runtime also includes higher-level workflow surfaces such as `shortcuts_list` / `shortcuts_execute`
 
@@ -36,6 +39,12 @@ Practical consequence:
 
 - this wrapper can expose and drive the browser tools, but it will not automatically inherit every “Claude Code feels smoother” behavior just by speaking to the same browser bridge
 - getting closer to original Claude Code behavior requires more reverse engineering of the bridge-side orchestration layer, not only adding more browser tools
+
+More concretely:
+
+- the wrapper currently speaks to the observed native-messaging/browser-tool surface
+- original Claude Code appears to layer a sidepanel-driven orchestration loop on top of that surface
+- so parity gaps are now more about missing orchestration state than missing raw browser primitives
 
 ## New conversation tab bias
 
