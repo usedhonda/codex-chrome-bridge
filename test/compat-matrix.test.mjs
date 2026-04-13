@@ -8,6 +8,9 @@ const matrixPath = path.join(process.cwd(), 'compat', 'version-matrix.json');
 test('compatibility matrix has required top-level shape', async () => {
   const matrix = JSON.parse(await fs.readFile(matrixPath, 'utf8'));
   assert.equal(typeof matrix.policy?.mode, 'string');
+  assert.equal(typeof matrix.policy?.driftResponse?.wrapperFix, 'string');
+  assert.equal(typeof matrix.policy?.driftResponse?.limitationFallback, 'string');
+  assert.equal(typeof matrix.policy?.driftResponse?.redReevaluation, 'string');
   assert.equal(Array.isArray(matrix.requiredContractMarkers), true);
   assert.equal(Array.isArray(matrix.validatedBaselines), true);
   assert.equal(matrix.validatedBaselines.length > 0, true);

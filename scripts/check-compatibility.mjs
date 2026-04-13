@@ -3,7 +3,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -69,6 +69,77 @@ async function fileExists(filePath) {
 
 function summarizeHardFailure(checks) {
   return checks.filter((check) => check.severity === 'error' && !check.ok);
+}
+
+function determineDriftDecision(checks, policy = {}) {
+  const failures = checks.filter((check) => check.severity === 'error' && !check.ok);
+  const warnings = checks.filter((check) => check.severity === 'warn' && !check.ok);
+  const failureNames = new Set(failures.map((check) => check.name));
+  const warningNames = warnings.map((check) => check.name);
+
+  const actions = {
+    wrapperFix: policy.wrapperFix ?? 'fix-wrapper',
+    limitationFallback: policy.limitationFallback ?? 'document-limitation',
+    redReevaluation: policy.redReevaluation ?? 'reclassify-red',
+  };
+
+  if (failures.length === 0 && warnings.length === 0) {
+    return {
+      action: 'none',
+      rationale: 'The current environment matches a validated wrapper-only baseline.',
+      triggeredBy: [],
+    };
+  }
+
+  const foundationalRuntimeFailures = [
+    'native_host_manifest',
+    'launcher_exists',
+    'extension_installation',
+    'probe_command',
+    'probe_json',
+    'probe_connect',
+    'probe_status',
+  ].filter((name) => failureNames.has(name));
+
+  if (foundationalRuntimeFailures.length > 0) {
+    return {
+      action: actions.redReevaluation,
+      rationale:
+        'Foundational runtime discovery or live probe health failed, so wrapper-only viability should be re-evaluated before claiming continued support.',
+      triggeredBy: foundationalRuntimeFailures,
+    };
+  }
+
+  const contractFailures = failures
+    .map((check) => check.name)
+    .filter(
+      (name) => name.startsWith('contract_marker:') || name === 'matrix_required_markers_known',
+    );
+
+  if (contractFailures.length > 0) {
+    return {
+      action: actions.wrapperFix,
+      rationale:
+        'Observed private-contract markers drifted while the bridge still looks present, so the next move is wrapper-only parser or compatibility work.',
+      triggeredBy: contractFailures,
+    };
+  }
+
+  if (warningNames.length > 0) {
+    return {
+      action: actions.limitationFallback,
+      rationale:
+        'Only warning-level drift is present, so keep the wrapper-only posture and downgrade public claims or extend the matrix before widening support statements.',
+      triggeredBy: warningNames,
+    };
+  }
+
+  return {
+    action: actions.wrapperFix,
+    rationale:
+      'An unexpected compatibility failure was detected without a foundational runtime collapse; investigate wrapper-only fixes first.',
+    triggeredBy: failures.map((check) => check.name),
+  };
 }
 
 async function main() {
@@ -307,6 +378,7 @@ async function main() {
       failures: failures.length,
       warnings: warnings.length,
     },
+    decision: determineDriftDecision(checks, versionMatrix?.policy?.driftResponse),
     matrix: versionMatrix
       ? {
           path: versionMatrixPath,
@@ -321,7 +393,15 @@ async function main() {
   process.exitCode = result.ok ? 0 : 1;
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error.stack ?? error.message}\n`);
-  process.exitCode = 1;
-});
+export const __test__ = {
+  determineDriftDecision,
+};
+
+const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : null;
+
+if (invokedPath && pathToFileURL(invokedPath).href === import.meta.url) {
+  main().catch((error) => {
+    process.stderr.write(`${error.stack ?? error.message}\n`);
+    process.exitCode = 1;
+  });
+}

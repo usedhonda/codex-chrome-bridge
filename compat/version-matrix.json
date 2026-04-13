@@ -2,6 +2,11 @@
   "policy": {
     "mode": "latest-tracking",
     "releaseBar": "power-user-beta",
+    "driftResponse": {
+      "wrapperFix": "fix-wrapper",
+      "limitationFallback": "document-limitation",
+      "redReevaluation": "reclassify-red"
+    },
     "notes": [
       "Wrapper-only support posture.",
       "Fail closed on missing contract markers.",

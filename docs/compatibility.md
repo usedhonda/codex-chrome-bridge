@@ -73,3 +73,21 @@ Use it for:
 - recording validated local baselines
 - making release drift visible in code review
 - deciding whether a new Anthropic update needs parser or compatibility work
+
+## Drift response
+
+`npm run compat` now emits a machine-readable `decision` block as well as raw checks.
+
+The expected maintainer response is:
+
+- `fix-wrapper`
+  - the runtime still exists, but private-contract markers drifted
+  - next move: wrapper-only parser/compat repair
+- `document-limitation`
+  - only warning-level drift is present, such as unvalidated version skew or a matrix miss
+  - next move: downgrade public claims or extend the matrix before widening support
+- `reclassify-red`
+  - foundational runtime discovery or live probe health failed
+  - next move: re-evaluate whether wrapper-only support is still honest at all
+
+This keeps Anthropic-side updates from turning into hand-wavy judgement calls.
