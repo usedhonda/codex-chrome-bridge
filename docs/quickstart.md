@@ -6,7 +6,7 @@
 - local Claude in Chrome/native-host runtime already present on the machine
 - Node.js 24+
 
-This project does **not** install or patch the Anthropic extension for you. It assumes the local CiC path already exists, and it does not require you to keep a Claude Code terminal session open while using the wrapper.
+This project does **not** install or patch the Anthropic extension for you. It assumes the local CiC/native-host path already exists, and it does not require you to keep a Claude Code terminal session open while using the wrapper. In normal operation, the browser side is driven from Codex alone.
 
 ## First run
 
@@ -20,7 +20,7 @@ Expected result:
 - a Unix socket under `/tmp/claude-mcp-browser-bridge-<user>/<pid>.sock`
 - `connect_ok: true`
 
-This is the main safety check: it proves the existing bridge is reachable before you ask Codex to use it.
+This is the main safety check: it proves the existing bridge is reachable before you ask Codex to use it. Once this passes, normal operation is `Codex -> wrapper MCP -> existing CiC/native-host runtime`, without a separate Claude Code terminal babysitting the session.
 
 Start the MCP wrapper:
 

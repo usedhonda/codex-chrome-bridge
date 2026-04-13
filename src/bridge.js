@@ -658,6 +658,28 @@ function selectTabsInContext(browserContext, selector) {
   return [];
 }
 
+function findBootstrapTabInContext(browserContext) {
+  const availableTabs = Array.isArray(browserContext?.availableTabs)
+    ? browserContext.availableTabs
+    : [];
+
+  if (availableTabs.length !== 1) {
+    return null;
+  }
+
+  const candidate = availableTabs[0];
+  const url = String(candidate?.url ?? '');
+  if (url !== 'chrome://newtab/') {
+    return null;
+  }
+
+  if (!Number.isFinite(candidate?.tabId)) {
+    return null;
+  }
+
+  return candidate;
+}
+
 function normalizeCoordinate(input) {
   if (Array.isArray(input?.coordinate) && input.coordinate.length === 2) {
     return [
@@ -1156,17 +1178,24 @@ class ClaudeChromeAdapter {
         };
       }
 
-      await this.ensureSessionContext(true);
-      const created = await this.tool('tabs_create_mcp', {});
-
-      const tabId = extractTabIdFromContent(created.content);
+      const sessionContext = await this.ensureSessionContext(true);
+      const bootstrapContext = findStructuredJson(sessionContext.content);
+      const bootstrapTab = findBootstrapTabInContext(bootstrapContext);
+      let tabId = Number.isFinite(bootstrapTab?.tabId)
+        ? Number(bootstrapTab.tabId)
+        : null;
 
       if (!tabId) {
-        throw new BridgeError(
-          'response_parse',
-          'could not extract tabId from tabs_create_mcp response',
-          created,
-        );
+        const created = await this.tool('tabs_create_mcp', {});
+        tabId = extractTabIdFromContent(created.content);
+
+        if (!tabId) {
+          throw new BridgeError(
+            'response_parse',
+            'could not extract tabId from tabs_create_mcp response',
+            created,
+          );
+        }
       }
 
       const navigated = await this.tool('navigate', {
@@ -2923,6 +2952,7 @@ export const __test__ = {
   extractTabIdFromContent,
   findTabInContext,
   selectTabsInContext,
+  findBootstrapTabInContext,
   normalizeCoordinate,
   normalizeOptionalCoordinate,
   normalizeStartCoordinate,

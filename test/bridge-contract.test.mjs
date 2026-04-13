@@ -105,6 +105,30 @@ test('tab selection is exact by tabId or exact URL', () => {
   );
 });
 
+test('bootstrap tab detection only matches a single blank new-tab anchor', () => {
+  assert.deepEqual(
+    __test__.findBootstrapTabInContext({
+      availableTabs: [{ tabId: 7, title: 'New Tab', url: 'chrome://newtab/' }],
+    }),
+    { tabId: 7, title: 'New Tab', url: 'chrome://newtab/' },
+  );
+  assert.equal(
+    __test__.findBootstrapTabInContext({
+      availableTabs: [
+        { tabId: 7, title: 'New Tab', url: 'chrome://newtab/' },
+        { tabId: 8, title: 'Example Domain', url: 'https://example.org/' },
+      ],
+    }),
+    null,
+  );
+  assert.equal(
+    __test__.findBootstrapTabInContext({
+      availableTabs: [{ tabId: 7, title: 'Example Domain', url: 'https://example.org/' }],
+    }),
+    null,
+  );
+});
+
 test('coordinate and region normalizers accept supported aliases and fail closed', () => {
   assert.deepEqual(__test__.normalizeCoordinate({ x: 12, y: 34 }), [12, 34]);
   assert.deepEqual(__test__.normalizeCoordinate({ coordinate: [56, 78] }), [56, 78]);
