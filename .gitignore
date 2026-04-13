@@ -1,12 +1,6 @@
 # >>> project-bootstrap managed >>>
 .cc-status-bar.voice.json
-.DS_Store
-.agent/tmp/
-.agent/
-.local/
-.codex/config.toml
-AGENTS.md
-CLAUDE.md
-docs/log/
-docs/ask/
 # <<< project-bootstrap managed <<<
+
+# Internal agent/codex logs
+docs/log/
