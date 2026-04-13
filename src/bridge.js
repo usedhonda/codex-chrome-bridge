@@ -640,6 +640,31 @@ function findTabInContext(browserContext, tabId) {
   );
 }
 
+function detectCreatedTabFromContexts(beforeContext, afterContext) {
+  const beforeTabs = Array.isArray(beforeContext?.availableTabs)
+    ? beforeContext.availableTabs
+    : [];
+  const afterTabs = Array.isArray(afterContext?.availableTabs)
+    ? afterContext.availableTabs
+    : [];
+
+  const beforeIds = new Set(
+    beforeTabs
+      .map((tab) => (Number.isFinite(tab?.tabId) ? Number(tab.tabId) : null))
+      .filter((tabId) => tabId !== null),
+  );
+
+  const createdTabs = afterTabs.filter(
+    (tab) => Number.isFinite(tab?.tabId) && !beforeIds.has(Number(tab.tabId)),
+  );
+
+  if (createdTabs.length === 1) {
+    return createdTabs[0];
+  }
+
+  return null;
+}
+
 function selectTabsInContext(browserContext, selector) {
   const availableTabs = Array.isArray(browserContext?.availableTabs)
     ? browserContext.availableTabs
@@ -845,6 +870,308 @@ function uniqueWarnings(warnings = []) {
   return [...new Set(warnings)];
 }
 
+function uniqueBoundedStrings(existing, values, maxEntries = 12) {
+  const merged = [...existing];
+
+  for (const value of values) {
+    if (typeof value !== 'string' || value.length === 0) {
+      continue;
+    }
+    if (merged.includes(value)) {
+      continue;
+    }
+    merged.push(value);
+  }
+
+  return merged.slice(-maxEntries);
+}
+
+class SessionContextManager {
+  constructor({ clientId, sessionScope }) {
+    this.clientId = clientId;
+    this.sessionScope = sessionScope ?? {};
+    this.identity = {
+      clientId,
+      sessionId:
+        typeof this.sessionScope.sessionId === 'string'
+          ? this.sessionScope.sessionId
+          : null,
+      displayName:
+        typeof this.sessionScope.displayName === 'string'
+          ? this.sessionScope.displayName
+          : null,
+      bridgeDisplayName: null,
+    };
+    this.currentTabGroupId = Number.isFinite(this.sessionScope.tabGroupId)
+      ? Number(this.sessionScope.tabGroupId)
+      : null;
+    this.lastActiveTabId = null;
+    this.lastUrl = null;
+    this.sessionHints = [];
+    this.downstreamWarnings = [];
+    this.permissionHints = [];
+    this.toolProvenance = null;
+    this.lastDownstreamSummary = null;
+  }
+
+  syncSessionScope() {
+    this.identity.sessionId =
+      typeof this.sessionScope?.sessionId === 'string'
+        ? this.sessionScope.sessionId
+        : this.identity.sessionId;
+    this.identity.displayName =
+      typeof this.sessionScope?.displayName === 'string'
+        ? this.sessionScope.displayName
+        : this.identity.displayName;
+    this.currentTabGroupId = Number.isFinite(this.sessionScope?.tabGroupId)
+      ? Number(this.sessionScope.tabGroupId)
+      : this.currentTabGroupId;
+  }
+
+  setBridgeDisplayName(displayName) {
+    if (typeof displayName === 'string' && displayName.length > 0) {
+      this.identity.bridgeDisplayName = displayName;
+    }
+  }
+
+  setTabGroupId(tabGroupId) {
+    if (Number.isFinite(tabGroupId)) {
+      const normalized = Number(tabGroupId);
+      this.currentTabGroupId = normalized;
+      this.sessionScope.tabGroupId = normalized;
+      return;
+    }
+
+    this.currentTabGroupId = null;
+    delete this.sessionScope.tabGroupId;
+  }
+
+  noteTab(tabId = null, url = null) {
+    if (Number.isFinite(tabId)) {
+      this.lastActiveTabId = Number(tabId);
+    }
+    if (typeof url === 'string' && url.length > 0) {
+      this.lastUrl = url;
+    }
+  }
+
+  noteWarnings(warnings = []) {
+    this.downstreamWarnings = uniqueBoundedStrings(
+      this.downstreamWarnings,
+      uniqueWarnings(warnings),
+    );
+  }
+
+  notePermissionHints(hints = []) {
+    this.permissionHints = uniqueBoundedStrings(this.permissionHints, hints);
+  }
+
+  noteSessionHints(hints = []) {
+    this.sessionHints = uniqueBoundedStrings(this.sessionHints, hints);
+  }
+
+  noteToolProvenance({
+    wrapperTool = null,
+    downstreamTool = null,
+    stage = null,
+    ok = true,
+  } = {}) {
+    this.toolProvenance = {
+      wrapperTool,
+      downstreamTool,
+      stage,
+      ok: Boolean(ok),
+      observedAt: new Date().toISOString(),
+    };
+  }
+
+  noteBrowserContext(browserContext) {
+    if (!browserContext || typeof browserContext !== 'object') {
+      return;
+    }
+
+    if (Number.isFinite(browserContext.tabGroupId)) {
+      this.setTabGroupId(browserContext.tabGroupId);
+    }
+  }
+
+  noteDownstreamSummary(summary) {
+    if (summary) {
+      this.lastDownstreamSummary = summary;
+    }
+  }
+
+  record({
+    wrapperTool = null,
+    downstreamTool = null,
+    stage = 'tool_call',
+    ok = true,
+    browserContext = null,
+    tabId = null,
+    url = null,
+    warnings = [],
+    sessionHints = [],
+    permissionHints = [],
+    downstreamSummary = null,
+  } = {}) {
+    this.syncSessionScope();
+    this.noteBrowserContext(browserContext);
+    this.noteTab(tabId, url);
+    this.noteWarnings(warnings);
+    this.noteSessionHints(sessionHints);
+    this.notePermissionHints(permissionHints);
+    this.noteToolProvenance({ wrapperTool, downstreamTool, stage, ok });
+    this.noteDownstreamSummary(downstreamSummary);
+  }
+
+  snapshot() {
+    this.syncSessionScope();
+    return {
+      identity: { ...this.identity },
+      currentTabGroupId: this.currentTabGroupId,
+      lastActiveTabId: this.lastActiveTabId,
+      lastUrl: this.lastUrl,
+      sessionHints: [...this.sessionHints],
+      downstreamWarnings: [...this.downstreamWarnings],
+      permissionHints: [...this.permissionHints],
+      toolProvenance: this.toolProvenance ? { ...this.toolProvenance } : null,
+      lastDownstreamSummary: this.lastDownstreamSummary,
+    };
+  }
+}
+
+const SESSION_CONTEXT = new SessionContextManager({
+  clientId: CLIENT_ID,
+  sessionScope: SESSION_SCOPE,
+});
+
+function buildResultEnvelope({
+  ok,
+  stage,
+  source = 'claude-code-native-host',
+  warnings = [],
+  sessionSnapshot,
+  tabGroup = null,
+  downstreamSummary = null,
+  payload = {},
+}) {
+  return {
+    ok: Boolean(ok),
+    stage,
+    source,
+    warnings: uniqueWarnings(warnings),
+    session: sessionSnapshot,
+    tabGroup,
+    downstream_summary: downstreamSummary,
+    ...payload,
+  };
+}
+
+function summarizeErrorDetail(detail) {
+  if (!detail || typeof detail !== 'object') {
+    return null;
+  }
+
+  if (Array.isArray(detail?.content)) {
+    return summarizeContent(detail.content);
+  }
+  if (Array.isArray(detail?.response?.result?.content)) {
+    return summarizeContent(detail.response.result.content);
+  }
+  if (Array.isArray(detail?.response?.error?.content)) {
+    return summarizeContent(detail.response.error.content);
+  }
+  if (Array.isArray(detail?.result?.content)) {
+    return summarizeContent(detail.result.content);
+  }
+
+  return null;
+}
+
+function warningsFromErrorDetail(detail) {
+  if (!detail || typeof detail !== 'object') {
+    return [];
+  }
+
+  return uniqueWarnings([
+    ...(Array.isArray(detail?.discovery?.warnings) ? detail.discovery.warnings : []),
+    ...(Array.isArray(detail?.warnings) ? detail.warnings : []),
+  ]);
+}
+
+function downstreamToolForWrapperTool(name) {
+  const mapping = {
+    browser_health: 'tabs_context_mcp',
+    browser_snapshot: 'tabs_context_mcp',
+    browser_tabs_context: 'tabs_context_mcp',
+    browser_create_tab: 'tabs_create_mcp',
+    browser_navigate_tab: 'navigate',
+    browser_open_or_focus: 'tabs_context_mcp+navigate',
+    browser_reuse_tab: 'tabs_context_mcp',
+    browser_close_tab: 'tabs_close_mcp',
+    browser_javascript_exec: 'javascript_tool',
+    browser_get_page_text: 'get_page_text',
+    browser_read_page: 'read_page',
+    browser_find: 'find',
+    browser_form_input: 'form_input',
+    browser_console_messages: 'read_console_messages',
+    browser_network_requests: 'read_network_requests',
+    browser_computer: 'computer',
+    browser_click: 'computer',
+    browser_type: 'computer',
+    browser_screenshot: 'computer',
+    browser_upload_file: 'file_upload',
+    browser_upload_image: 'upload_image',
+    browser_resize_window: 'resize_window',
+  };
+  return mapping[name] ?? null;
+}
+
+function buildFailureEnvelope(error, toolName, args = {}) {
+  const warnings = warningsFromErrorDetail(error?.detail);
+  const permissionHints = [];
+  const sessionHints = [];
+
+  if (error?.stage === 'tool_timeout') {
+    sessionHints.push('tool_timeout');
+  }
+  if (error?.stage === 'discover') {
+    sessionHints.push('bridge_discovery_failed');
+  }
+  if (/permission|allowed|denied|approve|auth/i.test(String(error?.message ?? ''))) {
+    permissionHints.push('permission_or_auth_intervention_needed');
+  }
+
+  SESSION_CONTEXT.record({
+    wrapperTool: toolName,
+    downstreamTool: downstreamToolForWrapperTool(toolName),
+    stage: error?.stage ?? 'unknown',
+    ok: false,
+    tabId: Number.isFinite(args?.tabId) ? Number(args.tabId) : null,
+    url: typeof args?.url === 'string' ? String(args.url) : null,
+    warnings,
+    sessionHints,
+    permissionHints,
+    downstreamSummary: summarizeErrorDetail(error?.detail),
+  });
+
+  return {
+    ...buildResultEnvelope({
+      ok: false,
+      stage: error?.stage ?? 'unknown',
+      warnings,
+      sessionSnapshot: SESSION_CONTEXT.snapshot(),
+      tabGroup: SESSION_CONTEXT.currentTabGroupId,
+      downstreamSummary: summarizeErrorDetail(error?.detail),
+    }),
+    error: {
+      code: error?.name ?? 'Error',
+      message: error?.message ?? 'unknown error',
+      detail: error?.detail,
+    },
+  };
+}
+
 function isMissingTabGroupError(error) {
   if (!error || error.name !== 'BridgeError') {
     return false;
@@ -953,6 +1280,7 @@ class ClaudeChromeAdapter {
     this.initialProbe = options.initialProbe ?? null;
     this.imageCache = options.imageCache ?? SHARED_IMAGE_CACHE;
     this.sessionScope = options.sessionScope ?? SESSION_SCOPE;
+    this.sessionContext = options.sessionContext ?? SESSION_CONTEXT;
     this.client =
       options.client ??
       new NativeBridgeClient(discovery.selectedProcess.socketPath, CLIENT_ID, {
@@ -967,11 +1295,54 @@ class ClaudeChromeAdapter {
     }
 
     if (Number.isFinite(browserContext?.tabGroupId)) {
-      this.sessionScope.tabGroupId = Number(browserContext.tabGroupId);
+      this.sessionContext.setTabGroupId(Number(browserContext.tabGroupId));
       return;
     }
 
-    delete this.sessionScope.tabGroupId;
+    this.sessionContext.setTabGroupId(null);
+  }
+
+  buildEnvelope({
+    wrapperTool,
+    downstreamTool = null,
+    stage = 'tool_call',
+    warnings = [],
+    sessionHints = [],
+    permissionHints = [],
+    browserContext = null,
+    downstreamSummary = null,
+    tabId = null,
+    url = null,
+    payload = {},
+  }) {
+    const normalizedWarnings = uniqueWarnings([
+      ...this.discovery.warnings,
+      ...warnings,
+    ]);
+
+    this.sessionContext.record({
+      wrapperTool,
+      downstreamTool,
+      stage,
+      ok: true,
+      browserContext,
+      tabId,
+      url,
+      warnings: normalizedWarnings,
+      sessionHints,
+      permissionHints,
+      downstreamSummary,
+    });
+
+    return buildResultEnvelope({
+      ok: true,
+      stage,
+      warnings: normalizedWarnings,
+      sessionSnapshot: this.sessionContext.snapshot(),
+      tabGroup: this.sessionContext.currentTabGroupId,
+      downstreamSummary,
+      payload,
+    });
   }
 
   async tool(tool, args, timeoutMs = TOOL_TIMEOUT_MS) {
@@ -989,6 +1360,7 @@ class ClaudeChromeAdapter {
 
     if (response.error) {
       if (!attemptedBusyRetry && responseSignalsTabsBusy(response)) {
+        this.sessionContext.noteSessionHints(['downstream_tabs_busy_retry']);
         await delay(350);
         return this.executeToolWithRecovery(
           tool,
@@ -1012,6 +1384,7 @@ class ClaudeChromeAdapter {
     } else if (contentSignalsMissingTabGroup(result.content ?? [])) {
       this.updateSessionScopeFromBrowserContext(null);
       if (!attemptedRecovery && toolSupportsSessionContextRecovery(tool)) {
+        this.sessionContext.noteSessionHints(['session_context_reseed_requested']);
         await this.client.executeTool(
           'tabs_context_mcp',
           { createIfEmpty: true },
@@ -1025,6 +1398,7 @@ class ClaudeChromeAdapter {
         this.updateSessionScopeFromBrowserContext(
           findStructuredJson(recoveryProbe.result?.content ?? recoveryProbe.content ?? []),
         );
+        this.sessionContext.noteSessionHints(['session_context_reseeded']);
         return this.executeToolWithRecovery(
           tool,
           args,
@@ -1049,28 +1423,39 @@ class ClaudeChromeAdapter {
       this.initialProbe?.status_summary ??
       summarizeContent(fallbackTabs?.content);
 
-    return {
-      source: 'claude-code-native-host',
-      host_process: this.discovery.selectedProcess,
-      launcher_target: this.discovery.launcherTarget,
-      socket_path: this.discovery.selectedProcess.socketPath,
-      connect_ok: true,
-      status_ok: true,
-      warnings: [...this.discovery.warnings],
-      candidate_attempts: this.candidateAttempts,
-      status_payload: statusPayload,
-      status_summary: statusSummary,
-    };
+    return this.buildEnvelope({
+      wrapperTool: 'browser_health',
+      downstreamTool: 'tabs_context_mcp',
+      stage: 'health',
+      browserContext: statusPayload,
+      downstreamSummary: statusSummary,
+      payload: {
+        host_process: this.discovery.selectedProcess,
+        launcher_target: this.discovery.launcherTarget,
+        socket_path: this.discovery.selectedProcess.socketPath,
+        connect_ok: true,
+        status_ok: true,
+        candidate_attempts: this.candidateAttempts,
+        status_payload: statusPayload,
+        status_summary: statusSummary,
+      },
+    });
   }
 
   async snapshot() {
     const tabs = await this.tool('tabs_context_mcp', { createIfEmpty: false });
-    return {
-      source: 'claude-code-native-host',
-      warnings: [...this.discovery.warnings],
-      browser_context: findStructuredJson(tabs.content),
-      raw_summary: summarizeContent(tabs.content),
-    };
+    const browserContext = findStructuredJson(tabs.content);
+    const rawSummary = summarizeContent(tabs.content);
+    return this.buildEnvelope({
+      wrapperTool: 'browser_snapshot',
+      downstreamTool: 'tabs_context_mcp',
+      browserContext,
+      downstreamSummary: rawSummary,
+      payload: {
+        browser_context: browserContext,
+        raw_summary: rawSummary,
+      },
+    });
   }
 
   async tabsContext(input = {}) {
@@ -1078,21 +1463,36 @@ class ClaudeChromeAdapter {
       createIfEmpty: Boolean(input.createIfEmpty),
     });
 
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'tabs_context',
-      createIfEmpty: Boolean(input.createIfEmpty),
-      warnings: [...this.discovery.warnings],
-      browser_context: findStructuredJson(response.content),
-      raw_summary: summarizeContent(response.content),
-    };
+    const browserContext = findStructuredJson(response.content);
+    const rawSummary = summarizeContent(response.content);
+    return this.buildEnvelope({
+      wrapperTool: 'browser_tabs_context',
+      downstreamTool: 'tabs_context_mcp',
+      browserContext,
+      downstreamSummary: rawSummary,
+      payload: {
+        action_taken: 'tabs_context',
+        createIfEmpty: Boolean(input.createIfEmpty),
+        browser_context: browserContext,
+        raw_summary: rawSummary,
+      },
+    });
   }
 
   async createTab() {
-    await this.ensureSessionContext(true);
+    const beforeContextResult = await this.ensureSessionContext(true);
+    const beforeContext = findStructuredJson(beforeContextResult.content);
     const created = await this.tool('tabs_create_mcp', {});
 
-    const tabId = extractTabIdFromContent(created.content);
+    const postCreateTabId = extractTabIdFromContent(created.content);
+    const snapshot = await this.snapshot();
+    const createdTab =
+      findTabInContext(snapshot.browser_context, postCreateTabId) ??
+      detectCreatedTabFromContexts(beforeContext, snapshot.browser_context);
+    const tabId = Number.isFinite(createdTab?.tabId)
+      ? Number(createdTab.tabId)
+      : postCreateTabId;
+
     if (!tabId) {
       throw new BridgeError(
         'response_parse',
@@ -1100,17 +1500,21 @@ class ClaudeChromeAdapter {
         created,
       );
     }
-
-    const snapshot = await this.snapshot();
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'create_tab',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_create_tab',
+      downstreamTool: 'tabs_create_mcp',
+      browserContext: snapshot.browser_context,
+      downstreamSummary: summarizeContent(created.content),
       tabId,
-      warnings: [...this.discovery.warnings],
-      browser_context: snapshot.browser_context,
-      raw_summary: summarizeContent(created.content),
-      snapshot_summary: snapshot.raw_summary,
-    };
+      payload: {
+        action_taken: 'create_tab',
+        tabId,
+        created_tab: createdTab,
+        browser_context: snapshot.browser_context,
+        raw_summary: summarizeContent(created.content),
+        snapshot_summary: snapshot.raw_summary,
+      },
+    });
   }
 
   async navigateTab(input) {
@@ -1128,16 +1532,21 @@ class ClaudeChromeAdapter {
       ...(input.force === undefined ? {} : { force: Boolean(input.force) }),
     });
 
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'navigate',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_navigate_tab',
+      downstreamTool: 'navigate',
       tabId: Number(input.tabId),
-      target: String(input.url),
-      force: Boolean(input.force),
-      warnings: [...this.discovery.warnings],
-      result: normalizeToolContent(response.content),
-      raw_summary: summarizeContent(response.content),
-    };
+      url: String(input.url),
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        action_taken: 'navigate',
+        tabId: Number(input.tabId),
+        target: String(input.url),
+        force: Boolean(input.force),
+        result: normalizeToolContent(response.content),
+        raw_summary: summarizeContent(response.content),
+      },
+    });
   }
 
   async openOrFocus(input) {
@@ -1166,16 +1575,23 @@ class ClaudeChromeAdapter {
       if (matchedTabs.length === 1) {
         const matchedTab = matchedTabs[0];
 
-        return {
-          source: 'claude-code-native-host',
-          action_taken: 'reuse',
+        return this.buildEnvelope({
+          wrapperTool: 'browser_open_or_focus',
+          downstreamTool: 'tabs_context_mcp',
           tabId: Number(matchedTab.tabId),
-          target: input.url,
-          warnings: [...this.discovery.warnings],
-          matched_tab: matchedTab,
-          browser_context: snapshot.browser_context,
-          raw_summary: snapshot.raw_summary,
-        };
+          url: input.url,
+          browserContext: snapshot.browser_context,
+          downstreamSummary: snapshot.raw_summary,
+          sessionHints: ['exact_url_reuse'],
+          payload: {
+            action_taken: 'reuse',
+            tabId: Number(matchedTab.tabId),
+            target: input.url,
+            matched_tab: matchedTab,
+            browser_context: snapshot.browser_context,
+            raw_summary: snapshot.raw_summary,
+          },
+        });
       }
 
       const sessionContext = await this.ensureSessionContext(true);
@@ -1187,7 +1603,19 @@ class ClaudeChromeAdapter {
 
       if (!tabId) {
         const created = await this.tool('tabs_create_mcp', {});
-        tabId = extractTabIdFromContent(created.content);
+        const createdContext = await this.snapshot();
+        const createdTab =
+          findTabInContext(
+            createdContext.browser_context,
+            extractTabIdFromContent(created.content),
+          ) ??
+          detectCreatedTabFromContexts(
+            bootstrapContext,
+            createdContext.browser_context,
+          );
+        tabId = Number.isFinite(createdTab?.tabId)
+          ? Number(createdTab.tabId)
+          : extractTabIdFromContent(created.content);
 
         if (!tabId) {
           throw new BridgeError(
@@ -1203,30 +1631,38 @@ class ClaudeChromeAdapter {
         url: input.url,
       });
 
-      return {
-        source: 'claude-code-native-host',
-        action_taken: 'open',
+      return this.buildEnvelope({
+        wrapperTool: 'browser_open_or_focus',
+        downstreamTool: 'tabs_context_mcp+navigate',
         tabId,
-        target: input.url,
-        warnings: [...this.discovery.warnings],
-        downstream_summary: summarizeContent(navigated.content),
-      };
+        url: input.url,
+        downstreamSummary: summarizeContent(navigated.content),
+        payload: {
+          action_taken: 'open',
+          tabId,
+          target: input.url,
+        },
+      });
     }
 
     if (input.tabId) {
       const snapshot = await this.reuseTab(input);
-      return {
-        source: 'claude-code-native-host',
-        action_taken: 'focus_unsupported_snapshot_returned',
+      return this.buildEnvelope({
+        wrapperTool: 'browser_open_or_focus',
+        downstreamTool: 'tabs_context_mcp',
         tabId: Number(input.tabId),
-        warnings: [
-          ...snapshot.warnings,
-          'downstream_focus_action_not_confirmed',
-        ],
-        matched_tab: snapshot.matched_tab,
-        browser_context: snapshot.browser_context,
-        raw_summary: snapshot.raw_summary,
-      };
+        browserContext: snapshot.browser_context,
+        downstreamSummary: snapshot.raw_summary,
+        warnings: ['downstream_focus_action_not_confirmed'],
+        sessionHints: ['focus_action_not_confirmed'],
+        payload: {
+          action_taken: 'focus_unsupported_snapshot_returned',
+          tabId: Number(input.tabId),
+          matched_tab: snapshot.matched_tab,
+          browser_context: snapshot.browser_context,
+          raw_summary: snapshot.raw_summary,
+        },
+      });
     }
 
       throw new BridgeError('tool_call', 'url or tabId is required');
@@ -1272,16 +1708,22 @@ class ClaudeChromeAdapter {
 
     const matchedTab = matchedTabs[0];
 
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'reuse_confirmed',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_reuse_tab',
+      downstreamTool: 'tabs_context_mcp',
       tabId: Number(matchedTab.tabId),
-      warnings: [...this.discovery.warnings],
-      selector: input,
-      matched_tab: matchedTab,
-      browser_context: snapshot.browser_context,
-      raw_summary: snapshot.raw_summary,
-    };
+      url: matchedTab.url,
+      browserContext: snapshot.browser_context,
+      downstreamSummary: snapshot.raw_summary,
+      payload: {
+        action_taken: 'reuse_confirmed',
+        tabId: Number(matchedTab.tabId),
+        selector: input,
+        matched_tab: matchedTab,
+        browser_context: snapshot.browser_context,
+        raw_summary: snapshot.raw_summary,
+      },
+    });
   }
 
   async click(input) {
@@ -1292,13 +1734,16 @@ class ClaudeChromeAdapter {
       tabId: Number(input.tabId),
     });
 
-    return {
-      source: 'claude-code-native-host',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_click',
+      downstreamTool: 'computer',
       tabId: Number(input.tabId),
-      coordinate,
-      warnings: [...this.discovery.warnings],
-      downstream_summary: summarizeContent(response.content),
-    };
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        tabId: Number(input.tabId),
+        coordinate,
+      },
+    });
   }
 
   async computer(input) {
@@ -1426,25 +1871,29 @@ class ClaudeChromeAdapter {
 
     const response = await this.tool('computer', args);
 
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'computer',
-      computer_action: action,
+    return this.buildEnvelope({
+      wrapperTool: 'browser_computer',
+      downstreamTool: 'computer',
       tabId: Number(input.tabId),
-      ref: args.ref ?? null,
-      coordinate: args.coordinate ?? null,
-      startCoordinate: args.start_coordinate ?? null,
-      region: args.region ?? null,
-      text: args.text ?? null,
-      duration: args.duration ?? null,
-      scrollDirection: args.scroll_direction ?? null,
-      scrollAmount: args.scroll_amount ?? null,
-      repeat: args.repeat ?? null,
-      modifiers: args.modifiers ?? null,
-      result: normalizeToolContent(response.content),
-      warnings: [...this.discovery.warnings],
-      raw_summary: summarizeContent(response.content),
-    };
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        action_taken: 'computer',
+        computer_action: action,
+        tabId: Number(input.tabId),
+        ref: args.ref ?? null,
+        coordinate: args.coordinate ?? null,
+        startCoordinate: args.start_coordinate ?? null,
+        region: args.region ?? null,
+        text: args.text ?? null,
+        duration: args.duration ?? null,
+        scrollDirection: args.scroll_direction ?? null,
+        scrollAmount: args.scroll_amount ?? null,
+        repeat: args.repeat ?? null,
+        modifiers: args.modifiers ?? null,
+        result: normalizeToolContent(response.content),
+        raw_summary: summarizeContent(response.content),
+      },
+    });
   }
 
   async type(input) {
@@ -1464,14 +1913,17 @@ class ClaudeChromeAdapter {
       tabId: Number(input.tabId),
     });
 
-    return {
-      source: 'claude-code-native-host',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_type',
+      downstreamTool: 'computer',
       tabId: Number(input.tabId),
-      text: String(input.text),
-      warnings: [...this.discovery.warnings],
-      pre_steps: steps,
-      downstream_summary: summarizeContent(response.content),
-    };
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        tabId: Number(input.tabId),
+        text: String(input.text),
+        pre_steps: steps,
+      },
+    });
   }
 
   async closeTab(input) {
@@ -1484,15 +1936,20 @@ class ClaudeChromeAdapter {
     });
     const snapshot = await this.snapshot();
 
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'close',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_close_tab',
+      downstreamTool: 'tabs_close_mcp',
       tabId: Number(input.tabId),
-      warnings: [...this.discovery.warnings],
-      close_summary: summarizeContent(response.content),
-      browser_context: snapshot.browser_context,
-      raw_summary: snapshot.raw_summary,
-    };
+      browserContext: snapshot.browser_context,
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        action_taken: 'close',
+        tabId: Number(input.tabId),
+        close_summary: summarizeContent(response.content),
+        browser_context: snapshot.browser_context,
+        raw_summary: snapshot.raw_summary,
+      },
+    });
   }
 
   async javascriptExec(input) {
@@ -1510,15 +1967,19 @@ class ClaudeChromeAdapter {
       tabId: Number(input.tabId),
     });
 
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'javascript_exec',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_javascript_exec',
+      downstreamTool: 'javascript_tool',
       tabId: Number(input.tabId),
-      script: String(input.script),
-      result: normalizeToolContent(response.content),
-      warnings: [...this.discovery.warnings],
-      raw_summary: summarizeContent(response.content),
-    };
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        action_taken: 'javascript_exec',
+        tabId: Number(input.tabId),
+        script: String(input.script),
+        result: normalizeToolContent(response.content),
+        raw_summary: summarizeContent(response.content),
+      },
+    });
   }
 
   async getPageText(input) {
@@ -1536,15 +1997,19 @@ class ClaudeChromeAdapter {
 
     const response = await this.tool('get_page_text', args);
 
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'get_page_text',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_get_page_text',
+      downstreamTool: 'get_page_text',
       tabId: Number(input.tabId),
-      text: extractPrimaryText(response.content),
-      result: normalizeToolContent(response.content),
-      warnings: [...this.discovery.warnings],
-      raw_summary: summarizeContent(response.content),
-    };
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        action_taken: 'get_page_text',
+        tabId: Number(input.tabId),
+        text: extractPrimaryText(response.content),
+        result: normalizeToolContent(response.content),
+        raw_summary: summarizeContent(response.content),
+      },
+    });
   }
 
   async readPage(input) {
@@ -1574,18 +2039,22 @@ class ClaudeChromeAdapter {
 
     const response = await this.tool('read_page', args);
 
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'read_page',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_read_page',
+      downstreamTool: 'read_page',
       tabId: Number(input.tabId),
-      filter: args.filter ?? 'all',
-      depth: args.depth ?? 15,
-      refId: args.ref_id ?? null,
-      text: extractPrimaryText(response.content),
-      result: normalizeToolContent(response.content),
-      warnings: [...this.discovery.warnings],
-      raw_summary: summarizeContent(response.content),
-    };
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        action_taken: 'read_page',
+        tabId: Number(input.tabId),
+        filter: args.filter ?? 'all',
+        depth: args.depth ?? 15,
+        refId: args.ref_id ?? null,
+        text: extractPrimaryText(response.content),
+        result: normalizeToolContent(response.content),
+        raw_summary: summarizeContent(response.content),
+      },
+    });
   }
 
   async find(input) {
@@ -1602,15 +2071,19 @@ class ClaudeChromeAdapter {
       tabId: Number(input.tabId),
     });
 
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'find',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_find',
+      downstreamTool: 'find',
       tabId: Number(input.tabId),
-      query: String(input.query),
-      result: normalizeToolContent(response.content),
-      warnings: [...this.discovery.warnings],
-      raw_summary: summarizeContent(response.content),
-    };
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        action_taken: 'find',
+        tabId: Number(input.tabId),
+        query: String(input.query),
+        result: normalizeToolContent(response.content),
+        raw_summary: summarizeContent(response.content),
+      },
+    });
   }
 
   async formInput(input) {
@@ -1632,16 +2105,20 @@ class ClaudeChromeAdapter {
       tabId: Number(input.tabId),
     });
 
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'form_input',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_form_input',
+      downstreamTool: 'form_input',
       tabId: Number(input.tabId),
-      ref: String(input.ref),
-      value: input.value,
-      result: normalizeToolContent(response.content),
-      warnings: [...this.discovery.warnings],
-      raw_summary: summarizeContent(response.content),
-    };
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        action_taken: 'form_input',
+        tabId: Number(input.tabId),
+        ref: String(input.ref),
+        value: input.value,
+        result: normalizeToolContent(response.content),
+        raw_summary: summarizeContent(response.content),
+      },
+    });
   }
 
   async readConsoleMessages(input) {
@@ -1667,18 +2144,22 @@ class ClaudeChromeAdapter {
     }
 
     const response = await this.tool('read_console_messages', args);
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'read_console_messages',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_console_messages',
+      downstreamTool: 'read_console_messages',
       tabId: Number(input.tabId),
-      onlyErrors: Boolean(input.onlyErrors),
-      pattern: args.pattern ?? null,
-      clear: Boolean(input.clear),
-      limit: args.limit ?? 100,
-      result: normalizeToolContent(response.content),
-      warnings: [...this.discovery.warnings],
-      raw_summary: summarizeContent(response.content),
-    };
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        action_taken: 'read_console_messages',
+        tabId: Number(input.tabId),
+        onlyErrors: Boolean(input.onlyErrors),
+        pattern: args.pattern ?? null,
+        clear: Boolean(input.clear),
+        limit: args.limit ?? 100,
+        result: normalizeToolContent(response.content),
+        raw_summary: summarizeContent(response.content),
+      },
+    });
   }
 
   async readNetworkRequests(input) {
@@ -1701,17 +2182,21 @@ class ClaudeChromeAdapter {
     }
 
     const response = await this.tool('read_network_requests', args);
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'read_network_requests',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_network_requests',
+      downstreamTool: 'read_network_requests',
       tabId: Number(input.tabId),
-      urlPattern: args.urlPattern ?? null,
-      clear: Boolean(input.clear),
-      limit: args.limit ?? 100,
-      result: normalizeToolContent(response.content),
-      warnings: [...this.discovery.warnings],
-      raw_summary: summarizeContent(response.content),
-    };
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        action_taken: 'read_network_requests',
+        tabId: Number(input.tabId),
+        urlPattern: args.urlPattern ?? null,
+        clear: Boolean(input.clear),
+        limit: args.limit ?? 100,
+        result: normalizeToolContent(response.content),
+        raw_summary: summarizeContent(response.content),
+      },
+    });
   }
 
   async uploadFile(input) {
@@ -1755,17 +2240,25 @@ class ClaudeChromeAdapter {
       rawSummary = summarizeContent(response.content);
     }
 
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'file_upload',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_upload_file',
+      downstreamTool: 'file_upload',
       tabId: Number(input.tabId),
-      ref: hasRef ? String(input.ref) : null,
-      selector: hasSelector ? String(input.selector) : null,
-      paths: input.paths.map((entry) => String(entry)),
-      result,
-      warnings,
-      raw_summary: rawSummary,
-    };
+      warnings: warnings.filter(
+        (warning) => !this.discovery.warnings.includes(warning),
+      ),
+      downstreamSummary:
+        typeof rawSummary === 'string' ? rawSummary : summarizeErrorDetail(rawSummary),
+      payload: {
+        action_taken: 'file_upload',
+        tabId: Number(input.tabId),
+        ref: hasRef ? String(input.ref) : null,
+        selector: hasSelector ? String(input.selector) : null,
+        paths: input.paths.map((entry) => String(entry)),
+        result,
+        raw_summary: rawSummary,
+      },
+    });
   }
 
   async uploadImage(input) {
@@ -1813,18 +2306,23 @@ class ClaudeChromeAdapter {
           ? { filename: String(input.filename) }
           : {}),
       });
-      return {
-        source: 'claude-code-native-host',
-        action_taken: 'upload_image',
+      return this.buildEnvelope({
+        wrapperTool: 'browser_upload_image',
+        downstreamTool: 'upload_image',
         tabId: Number(input.tabId),
-        imageId: input?.imageId ? String(input.imageId) : null,
-        ref: hasRef ? String(input.ref) : null,
-        coordinate: hasCoordinate ? normalizeCoordinate(input) : null,
-        filename: input?.filename ? String(input.filename) : null,
-        result: normalizeToolContent(response.content),
-        warnings: [...this.discovery.warnings, 'image_cache_miss_fallback_to_downstream'],
-        raw_summary: summarizeContent(response.content),
-      };
+        warnings: ['image_cache_miss_fallback_to_downstream'],
+        downstreamSummary: summarizeContent(response.content),
+        payload: {
+          action_taken: 'upload_image',
+          tabId: Number(input.tabId),
+          imageId: input?.imageId ? String(input.imageId) : null,
+          ref: hasRef ? String(input.ref) : null,
+          coordinate: hasCoordinate ? normalizeCoordinate(input) : null,
+          filename: input?.filename ? String(input.filename) : null,
+          result: normalizeToolContent(response.content),
+          raw_summary: summarizeContent(response.content),
+        },
+      });
     }
 
     const fileName =
@@ -1860,20 +2358,30 @@ class ClaudeChromeAdapter {
       });
     }
 
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'upload_image',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_upload_image',
+      downstreamTool: hasRef ? 'file_upload' : 'upload_image',
       tabId: Number(input.tabId),
-      imageId: input?.imageId ? String(input.imageId) : null,
-      path: input?.path ? String(input.path) : null,
-      ref: hasRef ? String(input.ref) : null,
-      selector: hasSelector ? String(input.selector) : null,
-      coordinate,
-      filename: fileName,
-      result: uploadResult,
-      warnings,
-      raw_summary: uploadResult,
-    };
+      warnings: warnings.filter(
+        (warning) => !this.discovery.warnings.includes(warning),
+      ),
+      downstreamSummary:
+        typeof uploadResult === 'string'
+          ? uploadResult
+          : summarizeErrorDetail(uploadResult),
+      payload: {
+        action_taken: 'upload_image',
+        tabId: Number(input.tabId),
+        imageId: input?.imageId ? String(input.imageId) : null,
+        path: input?.path ? String(input.path) : null,
+        ref: hasRef ? String(input.ref) : null,
+        selector: hasSelector ? String(input.selector) : null,
+        coordinate,
+        filename: fileName,
+        result: uploadResult,
+        raw_summary: uploadResult,
+      },
+    });
   }
 
   async screenshot(input) {
@@ -1903,18 +2411,22 @@ class ClaudeChromeAdapter {
       );
     }
 
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'screenshot',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_screenshot',
+      downstreamTool: 'computer',
       tabId: Number(input.tabId),
-      imageId,
-      width: metadata?.width ?? null,
-      height: metadata?.height ?? null,
-      format: metadata?.format ?? image?.mediaType ?? null,
-      cached: Boolean(image),
-      warnings: [...this.discovery.warnings],
-      raw_summary: summarizeContent(response.content),
-    };
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        action_taken: 'screenshot',
+        tabId: Number(input.tabId),
+        imageId,
+        width: metadata?.width ?? null,
+        height: metadata?.height ?? null,
+        format: metadata?.format ?? image?.mediaType ?? null,
+        cached: Boolean(image),
+        raw_summary: summarizeContent(response.content),
+      },
+    });
   }
 
   async resizeWindow(input) {
@@ -1930,16 +2442,20 @@ class ClaudeChromeAdapter {
       width: Number(input.width),
       height: Number(input.height),
     });
-    return {
-      source: 'claude-code-native-host',
-      action_taken: 'resize_window',
+    return this.buildEnvelope({
+      wrapperTool: 'browser_resize_window',
+      downstreamTool: 'resize_window',
       tabId: Number(input.tabId),
-      width: Number(input.width),
-      height: Number(input.height),
-      result: normalizeToolContent(response.content),
-      warnings: [...this.discovery.warnings],
-      raw_summary: summarizeContent(response.content),
-    };
+      downstreamSummary: summarizeContent(response.content),
+      payload: {
+        action_taken: 'resize_window',
+        tabId: Number(input.tabId),
+        width: Number(input.width),
+        height: Number(input.height),
+        result: normalizeToolContent(response.content),
+        raw_summary: summarizeContent(response.content),
+      },
+    });
   }
 
   async ensureSessionContext(createIfEmpty = false) {
@@ -1989,6 +2505,7 @@ async function createAdapter() {
     candidateAttempts: resolved.attempts,
     initialProbe: resolved.probe,
     sessionScope: SESSION_SCOPE,
+    sessionContext: SESSION_CONTEXT,
     imageCache: SHARED_IMAGE_CACHE,
   });
 }
@@ -2015,6 +2532,7 @@ async function runProbe() {
     const adapter = new ClaudeChromeAdapter(resolved.discovery, {
       candidateAttempts: resolved.attempts,
       initialProbe: resolved.probe,
+      sessionContext: SESSION_CONTEXT,
     });
     return await adapter.health();
   } catch (error) {
@@ -2759,16 +3277,12 @@ async function runMcpServer() {
               );
               emitRpc(rpcSuccess(message.id, toolResultPayload(result, false)));
             } catch (error) {
-              const payload = {
-                ok: false,
-                stage: error.stage ?? 'unknown',
-                error: {
-                  code: error.name ?? 'Error',
-                  message: error.message,
-                  detail: error.detail,
-                },
-              };
-              emitRpc(rpcSuccess(message.id, toolResultPayload(payload, true)));
+              emitRpc(
+                rpcSuccess(
+                  message.id,
+                  toolResultPayload(buildFailureEnvelope(error, toolName, args), true),
+                ),
+              );
             }
             continue;
           }
@@ -2876,16 +3390,12 @@ async function runMcpServer() {
             );
             emitRpc(rpcSuccess(message.id, toolResultPayload(result, false)));
           } catch (error) {
-            const payload = {
-              ok: false,
-              stage: error.stage ?? 'unknown',
-              error: {
-                code: error.name ?? 'Error',
-                message: error.message,
-                detail: error.detail,
-              },
-            };
-            emitRpc(rpcSuccess(message.id, toolResultPayload(payload, true)));
+            emitRpc(
+              rpcSuccess(
+                message.id,
+                toolResultPayload(buildFailureEnvelope(error, toolName, args), true),
+              ),
+            );
           }
           continue;
         }
@@ -2957,5 +3467,7 @@ export const __test__ = {
   normalizeOptionalCoordinate,
   normalizeStartCoordinate,
   normalizeRegion,
+  SessionContextManager,
+  buildResultEnvelope,
   BridgeError,
 };
