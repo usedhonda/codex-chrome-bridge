@@ -35,6 +35,7 @@
     "probe": "node ./src/bridge.js probe",
     "mcp": "node ./src/bridge.js mcp",
     "compat": "node ./scripts/check-compatibility.mjs",
+    "inspect:orchestration": "node ./scripts/inspect-bridge-orchestration.mjs",
     "test": "node --test ./test/*.test.mjs",
     "validate": "node ./scripts/validate-bridge.mjs",
     "validate:live": "node ./scripts/validate-bridge.mjs --live-browser",

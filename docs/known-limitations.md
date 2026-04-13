@@ -45,6 +45,7 @@ More concretely:
 - the wrapper currently speaks to the observed native-messaging/browser-tool surface
 - original Claude Code appears to layer a sidepanel-driven orchestration loop on top of that surface
 - so parity gaps are now more about missing orchestration state than missing raw browser primitives
+- maintainers can re-check that split with `npm run inspect:orchestration`, which inspects the installed bundle without patching Claude/CiC
 
 ## New conversation tab bias
 

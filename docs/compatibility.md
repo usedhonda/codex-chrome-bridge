@@ -36,6 +36,23 @@ It checks for:
 - launcher/live version skew
 - presence of the current version in `compat/version-matrix.json`
 
+## Orchestration inspection
+
+Run:
+
+```bash
+npm run inspect:orchestration
+```
+
+It is a read-only maintainer aid that inspects the installed Claude in Chrome bundle and reports whether the currently observed orchestration markers are still present, including:
+
+- the native-messaging `execute_tool` branch
+- the distinct bridge transport markers (`tool_call`, `tool_result`, `permission_request`, `pairing_request`)
+- the bridge-only `source: "bridge"` control-plane markers
+- the sidepanel/window-session workflow markers (`EXECUTE_TASK`, `POPULATE_INPUT_TEXT`, `windowSessionId`, `skipPermissions`)
+
+Use this when the wrapper still probes healthy but stops feeling like original Claude Code/CiC. It helps separate "raw browser bridge still exists" from "higher-level orchestration drifted."
+
 ## Known drift risks
 
 - private `execute_tool` request/response shape changes
