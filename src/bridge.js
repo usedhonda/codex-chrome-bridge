@@ -665,6 +665,50 @@ function detectCreatedTabFromContexts(beforeContext, afterContext) {
   return null;
 }
 
+async function resolveCreatedTabWithSnapshots({
+  snapshotFn,
+  beforeContext,
+  createdContent,
+  retries = 4,
+  delayMs = 150,
+}) {
+  const extractedTabId = extractTabIdFromContent(createdContent);
+  let latestSnapshot = null;
+
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    latestSnapshot = await snapshotFn();
+    const createdTab =
+      findTabInContext(latestSnapshot.browser_context, extractedTabId) ??
+      detectCreatedTabFromContexts(beforeContext, latestSnapshot.browser_context);
+
+    if (Number.isFinite(createdTab?.tabId)) {
+      return {
+        tabId: Number(createdTab.tabId),
+        createdTab,
+        snapshot: latestSnapshot,
+      };
+    }
+
+    if (Number.isFinite(extractedTabId)) {
+      return {
+        tabId: Number(extractedTabId),
+        createdTab: findTabInContext(latestSnapshot.browser_context, extractedTabId),
+        snapshot: latestSnapshot,
+      };
+    }
+
+    if (attempt < retries - 1) {
+      await delay(delayMs);
+    }
+  }
+
+  return {
+    tabId: extractedTabId,
+    createdTab: null,
+    snapshot: latestSnapshot,
+  };
+}
+
 function selectTabsInContext(browserContext, selector) {
   const availableTabs = Array.isArray(browserContext?.availableTabs)
     ? browserContext.availableTabs
@@ -1053,6 +1097,7 @@ function buildResultEnvelope({
   sessionSnapshot,
   tabGroup = null,
   downstreamSummary = null,
+  summary = null,
   payload = {},
 }) {
   return {
@@ -1063,7 +1108,262 @@ function buildResultEnvelope({
     session: sessionSnapshot,
     tabGroup,
     downstream_summary: downstreamSummary,
+    summary,
     ...payload,
+  };
+}
+
+function summarizeSingleLine(value, maxLength = 160) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const normalized = String(value).replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 3)}...`;
+}
+
+function inferPermissionState({ permissionHints = [], error = null } = {}) {
+  if (
+    permissionHints.includes('permission_or_auth_intervention_needed') ||
+    /permission|allowed|denied|approve|auth/i.test(String(error?.message ?? ''))
+  ) {
+    return 'intervention_needed';
+  }
+
+  if (error) {
+    return 'unknown';
+  }
+
+  return 'not_required';
+}
+
+function inferPrimarySummary({
+  ok,
+  wrapperTool,
+  payload = {},
+  downstreamSummary = null,
+  sessionSnapshot = null,
+  tabGroup = null,
+  error = null,
+}) {
+  const effectiveTabId = Number.isFinite(payload?.tabId)
+    ? Number(payload.tabId)
+    : Number.isFinite(sessionSnapshot?.lastActiveTabId)
+      ? Number(sessionSnapshot.lastActiveTabId)
+      : null;
+
+  switch (wrapperTool) {
+    case 'browser_health':
+      return summarizeSingleLine(
+        `Bridge healthy; ${Array.isArray(payload?.status_payload?.availableTabs) ? payload.status_payload.availableTabs.length : 0} tab(s) visible in managed group ${tabGroup ?? 'none'}.`,
+      );
+    case 'browser_snapshot':
+    case 'browser_tabs_context':
+      return summarizeSingleLine(
+        `${Array.isArray(payload?.browser_context?.availableTabs) ? payload.browser_context.availableTabs.length : 0} tab(s) visible in managed group ${tabGroup ?? 'none'}.`,
+      );
+    case 'browser_create_tab':
+      return summarizeSingleLine(`Created tab ${effectiveTabId ?? 'unknown'}.`);
+    case 'browser_navigate_tab':
+      return summarizeSingleLine(
+        `Navigated tab ${effectiveTabId ?? 'unknown'} to ${payload?.target ?? sessionSnapshot?.lastUrl ?? 'target URL'}.`,
+      );
+    case 'browser_open_or_focus':
+      if (payload?.action_taken === 'reuse') {
+        return summarizeSingleLine(`Reused tab ${effectiveTabId ?? 'unknown'} for ${payload?.target ?? 'the requested URL'}.`);
+      }
+      if (payload?.action_taken === 'open') {
+        return summarizeSingleLine(`Opened tab ${effectiveTabId ?? 'unknown'} for ${payload?.target ?? 'the requested URL'}.`);
+      }
+      return summarizeSingleLine(`Returned snapshot for tab ${effectiveTabId ?? 'unknown'} because downstream focus was not confirmed.`);
+    case 'browser_reuse_tab':
+      return summarizeSingleLine(`Matched existing tab ${effectiveTabId ?? 'unknown'} in managed group ${tabGroup ?? 'none'}.`);
+    case 'browser_close_tab':
+      return summarizeSingleLine(`Closed tab ${effectiveTabId ?? 'unknown'}.`);
+    case 'browser_read_page':
+      return summarizeSingleLine(`Read page on tab ${effectiveTabId ?? 'unknown'}; refs and extracted text are available.`);
+    case 'browser_find':
+      return summarizeSingleLine(`Find completed on tab ${effectiveTabId ?? 'unknown'} for query ${JSON.stringify(payload?.query ?? '')}.`);
+    case 'browser_form_input':
+      return summarizeSingleLine(`Filled ref ${payload?.ref ?? 'unknown'} on tab ${effectiveTabId ?? 'unknown'}.`);
+    case 'browser_click':
+      return summarizeSingleLine(`Clicked on tab ${effectiveTabId ?? 'unknown'}.`);
+    case 'browser_type':
+      return summarizeSingleLine(`Typed into tab ${effectiveTabId ?? 'unknown'}.`);
+    case 'browser_computer':
+      return summarizeSingleLine(`Executed ${payload?.computer_action ?? 'computer'} on tab ${effectiveTabId ?? 'unknown'}.`);
+    case 'browser_javascript_exec':
+      return summarizeSingleLine(`Executed page script on tab ${effectiveTabId ?? 'unknown'}.`);
+    case 'browser_get_page_text':
+      return summarizeSingleLine(`Extracted page text from tab ${effectiveTabId ?? 'unknown'}.`);
+    case 'browser_console_messages':
+      return summarizeSingleLine(`Read console messages on tab ${effectiveTabId ?? 'unknown'}.`);
+    case 'browser_network_requests':
+      return summarizeSingleLine(`Read network requests on tab ${effectiveTabId ?? 'unknown'}.`);
+    case 'browser_screenshot':
+      return summarizeSingleLine(`Captured screenshot on tab ${effectiveTabId ?? 'unknown'}.`);
+    case 'browser_upload_file':
+      return summarizeSingleLine(`Uploaded file input on tab ${effectiveTabId ?? 'unknown'}.`);
+    case 'browser_upload_image':
+      return summarizeSingleLine(`Uploaded image on tab ${effectiveTabId ?? 'unknown'}.`);
+    case 'browser_resize_window':
+      return summarizeSingleLine(`Resized browser window for tab ${effectiveTabId ?? 'unknown'}.`);
+    default:
+      if (!ok && error) {
+        return summarizeSingleLine(
+          `${wrapperTool ?? 'tool'} failed at ${error?.stage ?? 'unknown'}: ${error?.message ?? 'unknown error'}`,
+        );
+      }
+      return summarizeSingleLine(downstreamSummary);
+  }
+}
+
+function inferNextHint({
+  ok,
+  wrapperTool,
+  payload = {},
+  sessionSnapshot = null,
+}) {
+  if (!ok) {
+    return null;
+  }
+
+  const effectiveTabId = Number.isFinite(payload?.tabId)
+    ? Number(payload.tabId)
+    : Number.isFinite(sessionSnapshot?.lastActiveTabId)
+      ? Number(sessionSnapshot.lastActiveTabId)
+      : null;
+
+  switch (wrapperTool) {
+    case 'browser_read_page':
+    case 'browser_find':
+      return 'Use returned refs with browser_click, browser_form_input, or browser_computer.';
+    case 'browser_tabs_context':
+    case 'browser_snapshot':
+      return summarizeSingleLine(
+        `Continue with browser_reuse_tab or browser_open_or_focus on tab ${effectiveTabId ?? 'from availableTabs'} in group ${sessionSnapshot?.currentTabGroupId ?? 'current'}.`,
+      );
+    case 'browser_open_or_focus':
+    case 'browser_reuse_tab':
+    case 'browser_create_tab':
+    case 'browser_navigate_tab':
+      return summarizeSingleLine(
+        `Continue on tab ${effectiveTabId ?? 'current'} with browser_read_page, browser_javascript_exec, or browser_close_tab.`,
+      );
+    case 'browser_form_input':
+      return summarizeSingleLine(
+        `Submit or continue interaction on tab ${effectiveTabId ?? 'current'} with browser_click or browser_computer.`,
+      );
+    case 'browser_get_page_text':
+    case 'browser_javascript_exec':
+    case 'browser_console_messages':
+    case 'browser_network_requests':
+      return summarizeSingleLine(
+        `Inspect the result, then continue interaction on tab ${effectiveTabId ?? 'current'} if needed.`,
+      );
+    case 'browser_click':
+    case 'browser_type':
+    case 'browser_computer':
+    case 'browser_upload_file':
+    case 'browser_upload_image':
+    case 'browser_screenshot':
+    case 'browser_resize_window':
+      return summarizeSingleLine(
+        `Continue on tab ${effectiveTabId ?? 'current'} or capture a fresh browser_snapshot if state may have changed.`,
+      );
+    case 'browser_close_tab':
+      return 'Use browser_snapshot or browser_tabs_context to inspect the remaining managed tabs.';
+    default:
+      return null;
+  }
+}
+
+function inferRecoveryHint({
+  ok,
+  warnings = [],
+  sessionHints = [],
+  permissionHints = [],
+  error = null,
+}) {
+  if (permissionHints.includes('permission_or_auth_intervention_needed')) {
+    return 'Permission or auth intervention is needed before retrying this tool call.';
+  }
+
+  if (sessionHints.includes('session_context_reseeded')) {
+    return 'Managed tab group was reseeded automatically; retry the current flow if page state still looks stale.';
+  }
+
+  if (sessionHints.includes('session_context_reseed_suggested')) {
+    return 'Managed tab group appears missing; reseed with browser_tabs_context(createIfEmpty=true) or retry the flow after recovery.';
+  }
+
+  if (sessionHints.includes('downstream_tabs_busy_retry')) {
+    return 'Downstream tabs were briefly locked; retry if the browser state still looks incomplete.';
+  }
+
+  if (sessionHints.includes('tool_timeout') || error?.stage === 'tool_timeout') {
+    return 'Downstream timed out; retry the same tool call once before escalating.';
+  }
+
+  if (sessionHints.includes('bridge_discovery_failed') || error?.stage === 'discover') {
+    return 'Bridge discovery failed; rerun probe or reopen Chrome/CiC before retrying.';
+  }
+
+  if (warnings.includes('downstream_focus_action_not_confirmed')) {
+    return 'Downstream focus action was not confirmed; rely on the returned snapshot and retry explicitly if needed.';
+  }
+
+  if (/No MCP tab groups found|No tab group exists for this session|No MCP tab group exists/i.test(String(error?.message ?? ''))) {
+    return 'Managed tab group is missing; rerun browser_tabs_context with createIfEmpty=true or retry the flow after reseeding.';
+  }
+
+  return null;
+}
+
+function buildSummaryBlock({
+  ok,
+  wrapperTool,
+  payload = {},
+  warnings = [],
+  sessionHints = [],
+  permissionHints = [],
+  downstreamSummary = null,
+  sessionSnapshot = null,
+  tabGroup = null,
+  error = null,
+}) {
+  return {
+    primary: inferPrimarySummary({
+      ok,
+      wrapperTool,
+      payload,
+      downstreamSummary,
+      sessionSnapshot,
+      tabGroup,
+      error,
+    }),
+    permission_state: inferPermissionState({ permissionHints, error }),
+    next_hint: inferNextHint({
+      ok,
+      wrapperTool,
+      payload,
+      sessionSnapshot,
+    }),
+    recovery_hint: inferRecoveryHint({
+      ok,
+      warnings,
+      sessionHints,
+      permissionHints,
+      error,
+    }),
   };
 }
 
@@ -1141,6 +1441,9 @@ function buildFailureEnvelope(error, toolName, args = {}) {
   if (/permission|allowed|denied|approve|auth/i.test(String(error?.message ?? ''))) {
     permissionHints.push('permission_or_auth_intervention_needed');
   }
+  if (/No MCP tab groups found|No tab group exists for this session|No MCP tab group exists/i.test(String(error?.message ?? ''))) {
+    sessionHints.push('session_context_reseed_suggested');
+  }
 
   SESSION_CONTEXT.record({
     wrapperTool: toolName,
@@ -1155,14 +1458,32 @@ function buildFailureEnvelope(error, toolName, args = {}) {
     downstreamSummary: summarizeErrorDetail(error?.detail),
   });
 
+  const sessionSnapshot = SESSION_CONTEXT.snapshot();
+  const downstreamSummary = summarizeErrorDetail(error?.detail);
+
   return {
     ...buildResultEnvelope({
       ok: false,
       stage: error?.stage ?? 'unknown',
       warnings,
-      sessionSnapshot: SESSION_CONTEXT.snapshot(),
+      sessionSnapshot,
       tabGroup: SESSION_CONTEXT.currentTabGroupId,
-      downstreamSummary: summarizeErrorDetail(error?.detail),
+      downstreamSummary,
+      summary: buildSummaryBlock({
+        ok: false,
+        wrapperTool: toolName,
+        payload: {
+          tabId: Number.isFinite(args?.tabId) ? Number(args.tabId) : null,
+          target: typeof args?.url === 'string' ? String(args.url) : null,
+        },
+        warnings,
+        sessionHints,
+        permissionHints,
+        downstreamSummary,
+        sessionSnapshot,
+        tabGroup: SESSION_CONTEXT.currentTabGroupId,
+        error,
+      }),
     }),
     error: {
       code: error?.name ?? 'Error',
@@ -1334,13 +1655,27 @@ class ClaudeChromeAdapter {
       downstreamSummary,
     });
 
+    const sessionSnapshot = this.sessionContext.snapshot();
+    const effectiveTabGroup = this.sessionContext.currentTabGroupId;
+
     return buildResultEnvelope({
       ok: true,
       stage,
       warnings: normalizedWarnings,
-      sessionSnapshot: this.sessionContext.snapshot(),
-      tabGroup: this.sessionContext.currentTabGroupId,
+      sessionSnapshot,
+      tabGroup: effectiveTabGroup,
       downstreamSummary,
+      summary: buildSummaryBlock({
+        ok: true,
+        wrapperTool,
+        payload,
+        warnings: normalizedWarnings,
+        sessionHints,
+        permissionHints,
+        downstreamSummary,
+        sessionSnapshot,
+        tabGroup: effectiveTabGroup,
+      }),
       payload,
     });
   }
@@ -1483,15 +1818,14 @@ class ClaudeChromeAdapter {
     const beforeContextResult = await this.ensureSessionContext(true);
     const beforeContext = findStructuredJson(beforeContextResult.content);
     const created = await this.tool('tabs_create_mcp', {});
-
-    const postCreateTabId = extractTabIdFromContent(created.content);
-    const snapshot = await this.snapshot();
-    const createdTab =
-      findTabInContext(snapshot.browser_context, postCreateTabId) ??
-      detectCreatedTabFromContexts(beforeContext, snapshot.browser_context);
-    const tabId = Number.isFinite(createdTab?.tabId)
-      ? Number(createdTab.tabId)
-      : postCreateTabId;
+    const resolved = await resolveCreatedTabWithSnapshots({
+      snapshotFn: () => this.snapshot(),
+      beforeContext,
+      createdContent: created.content,
+    });
+    const snapshot = resolved.snapshot;
+    const createdTab = resolved.createdTab;
+    const tabId = resolved.tabId;
 
     if (!tabId) {
       throw new BridgeError(
@@ -1603,19 +1937,12 @@ class ClaudeChromeAdapter {
 
       if (!tabId) {
         const created = await this.tool('tabs_create_mcp', {});
-        const createdContext = await this.snapshot();
-        const createdTab =
-          findTabInContext(
-            createdContext.browser_context,
-            extractTabIdFromContent(created.content),
-          ) ??
-          detectCreatedTabFromContexts(
-            bootstrapContext,
-            createdContext.browser_context,
-          );
-        tabId = Number.isFinite(createdTab?.tabId)
-          ? Number(createdTab.tabId)
-          : extractTabIdFromContent(created.content);
+        const resolved = await resolveCreatedTabWithSnapshots({
+          snapshotFn: () => this.snapshot(),
+          beforeContext: bootstrapContext,
+          createdContent: created.content,
+        });
+        tabId = resolved.tabId;
 
         if (!tabId) {
           throw new BridgeError(
@@ -3469,5 +3796,6 @@ export const __test__ = {
   normalizeRegion,
   SessionContextManager,
   buildResultEnvelope,
+  buildSummaryBlock,
   BridgeError,
 };

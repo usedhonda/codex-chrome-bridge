@@ -60,6 +60,12 @@ test('buildResultEnvelope normalizes common top-level fields', () => {
     },
     tabGroup: 9,
     downstreamSummary: 'navigate ok',
+    summary: {
+      primary: 'Navigated tab 42.',
+      permission_state: 'not_required',
+      next_hint: 'Continue on tab 42.',
+      recovery_hint: null,
+    },
     payload: { tabId: 42, action_taken: 'navigate' },
   });
 
@@ -74,7 +80,70 @@ test('buildResultEnvelope normalizes common top-level fields', () => {
     },
     tabGroup: 9,
     downstream_summary: 'navigate ok',
+    summary: {
+      primary: 'Navigated tab 42.',
+      permission_state: 'not_required',
+      next_hint: 'Continue on tab 42.',
+      recovery_hint: null,
+    },
     tabId: 42,
     action_taken: 'navigate',
+  });
+});
+
+test('buildSummaryBlock emits permission and ref-driven hints', () => {
+  const summary = __test__.buildSummaryBlock({
+    ok: true,
+    wrapperTool: 'browser_read_page',
+    payload: {
+      action_taken: 'read_page',
+      tabId: 77,
+    },
+    warnings: [],
+    sessionHints: [],
+    permissionHints: [],
+    downstreamSummary: 'read_page returned refs',
+    sessionSnapshot: {
+      currentTabGroupId: 18,
+      lastActiveTabId: 77,
+    },
+    tabGroup: 18,
+  });
+
+  assert.deepEqual(summary, {
+    primary: 'Read page on tab 77; refs and extracted text are available.',
+    permission_state: 'not_required',
+    next_hint: 'Use returned refs with browser_click, browser_form_input, or browser_computer.',
+    recovery_hint: null,
+  });
+});
+
+test('buildSummaryBlock marks permission intervention and timeout recovery on failure', () => {
+  const summary = __test__.buildSummaryBlock({
+    ok: false,
+    wrapperTool: 'browser_javascript_exec',
+    payload: {
+      tabId: 12,
+    },
+    warnings: [],
+    sessionHints: ['tool_timeout'],
+    permissionHints: ['permission_or_auth_intervention_needed'],
+    downstreamSummary: null,
+    sessionSnapshot: {
+      currentTabGroupId: 4,
+      lastActiveTabId: 12,
+    },
+    tabGroup: 4,
+    error: {
+      stage: 'tool_timeout',
+      message: 'permission prompt blocked execution',
+    },
+  });
+
+  assert.deepEqual(summary, {
+    primary: 'Executed page script on tab 12.',
+    permission_state: 'intervention_needed',
+    next_hint: null,
+    recovery_hint: 'Permission or auth intervention is needed before retrying this tool call.',
   });
 });
