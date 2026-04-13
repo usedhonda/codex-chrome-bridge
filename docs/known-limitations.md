@@ -26,6 +26,12 @@ Practical consequence:
 
 This project reuses the existing Claude in Chrome/native-host browser path, but it does **not** become the full Claude Code product runtime.
 
+The current wrapper-only boundary intentionally leaves these three areas as limitations rather than pretending to fully recreate them:
+
+- bridge token acquisition / remote bridge auth
+- pairing server-side semantics beyond the locally visible confirm path
+- the upstream bridge control-plane that turns sidepanel task state into remote `tool_call`
+
 Observed source-level differences:
 
 - the installed extension's native-messaging entrypoint hard-codes `source: "native-messaging"` for tool execution
@@ -46,6 +52,44 @@ More concretely:
 - original Claude Code appears to layer a sidepanel-driven orchestration loop on top of that surface
 - so parity gaps are now more about missing orchestration state than missing raw browser primitives
 - maintainers can re-check that split with `npm run inspect:orchestration`, which inspects the installed bundle without patching Claude/CiC
+
+### Explicit wrapper-only limits
+
+#### 1. Bridge token acquisition / remote bridge auth
+
+Observed source-level facts:
+
+- the installed bundle opens `wss://bridge.claudeusercontent.com/chrome/<token>`
+- that `<token>` is resolved from the OAuth bearer path by calling `/api/oauth/profile` and taking `account.uuid`
+- the same bridge connect payload also carries `oauth_token` in the currently observed production path
+
+Practical consequence:
+
+- the wrapper can inspect and document this flow, but it does not currently replace or recreate the Anthropic-owned bridge authentication path
+
+#### 2. Pairing server-side semantics
+
+Observed source-level facts:
+
+- `bridgeDeviceId` and `bridgeDisplayName` are persisted locally in `chrome.storage.local`
+- the client-side confirm path emits `pairing_response { request_id, device_id, name }`
+- the installed UI also emits `pairing_dismissed`, but the full server-side contract around dismiss/confirm transitions is not locally visible
+
+Practical consequence:
+
+- the wrapper can mirror local identity/session state, but it should not claim full parity for the remote pairing lifecycle
+
+#### 3. Upstream bridge control-plane
+
+Observed source-level facts:
+
+- sidepanel/service-worker code drives `EXECUTE_TASK`, `POPULATE_INPUT_TEXT`, `windowSessionId`, and `skipPermissions`
+- websocket-side bridge code separately receives `tool_call` and emits `tool_result` / `permission_request`
+- the locally visible source does not expose the full server-side step that turns the sidepanel workflow into remote bridge `tool_call`
+
+Practical consequence:
+
+- wrapper-only parity should focus on local orchestration helpers, not on pretending that the upstream Anthropic bridge control-plane has been recreated
 
 ## New conversation tab bias
 
