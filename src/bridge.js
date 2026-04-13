@@ -1098,6 +1098,7 @@ function buildResultEnvelope({
   tabGroup = null,
   downstreamSummary = null,
   summary = null,
+  handoff = null,
   payload = {},
 }) {
   return {
@@ -1109,6 +1110,7 @@ function buildResultEnvelope({
     tabGroup,
     downstream_summary: downstreamSummary,
     summary,
+    handoff,
     ...payload,
   };
 }
@@ -1367,6 +1369,151 @@ function buildSummaryBlock({
   };
 }
 
+function extractObservedRefs(value, found = new Set()) {
+  if (typeof value === 'string') {
+    const matches = value.match(/\bref_\d+\b/g) ?? [];
+    for (const match of matches) {
+      found.add(match);
+    }
+    return [...found];
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      extractObservedRefs(entry, found);
+    }
+    return [...found];
+  }
+
+  if (value && typeof value === 'object') {
+    for (const entry of Object.values(value)) {
+      extractObservedRefs(entry, found);
+    }
+  }
+
+  return [...found];
+}
+
+function inferHandoffFromReadLikeTool(wrapperTool, payload, sessionSnapshot) {
+  const refs = extractObservedRefs(payload?.result ?? payload?.text ?? payload?.raw_summary);
+  const tabId = Number.isFinite(payload?.tabId)
+    ? Number(payload.tabId)
+    : Number.isFinite(sessionSnapshot?.lastActiveTabId)
+      ? Number(sessionSnapshot.lastActiveTabId)
+      : null;
+
+  if (!tabId || refs.length === 0) {
+    return null;
+  }
+
+  return {
+    next_tool: 'browser_click',
+    args_seed: {
+      tabId,
+      ref: refs[0],
+    },
+    reason: 'Observed refs can flow directly into a ref-targeted action.',
+    confidence: wrapperTool === 'browser_find' ? 'high' : 'medium',
+  };
+}
+
+function inferHandoffFromTabContinuity(payload, sessionSnapshot, preferredTool = 'browser_read_page') {
+  const tabId = Number.isFinite(payload?.tabId)
+    ? Number(payload.tabId)
+    : Number.isFinite(sessionSnapshot?.lastActiveTabId)
+      ? Number(sessionSnapshot.lastActiveTabId)
+      : null;
+
+  if (!tabId) {
+    return null;
+  }
+
+  return {
+    next_tool: preferredTool,
+    args_seed: { tabId },
+    reason: 'The active managed tab is known, so the next tool can continue on the same tab.',
+    confidence: 'high',
+  };
+}
+
+function inferHandoffFromFormInput(payload, sessionSnapshot) {
+  const tabId = Number.isFinite(payload?.tabId)
+    ? Number(payload.tabId)
+    : Number.isFinite(sessionSnapshot?.lastActiveTabId)
+      ? Number(sessionSnapshot.lastActiveTabId)
+      : null;
+  const ref = typeof payload?.ref === 'string' && payload.ref.length > 0 ? payload.ref : null;
+
+  if (!tabId || !ref) {
+    return null;
+  }
+
+  return {
+    next_tool: 'browser_click',
+    args_seed: { tabId, ref },
+    reason: 'The same ref was just filled and is ready for a follow-up click if the control is actionable.',
+    confidence: 'medium',
+  };
+}
+
+function inferHandoffFromContext(payload, sessionSnapshot) {
+  const availableTabs = Array.isArray(payload?.browser_context?.availableTabs)
+    ? payload.browser_context.availableTabs
+    : [];
+  const sessionTabId = Number.isFinite(sessionSnapshot?.lastActiveTabId)
+    ? Number(sessionSnapshot.lastActiveTabId)
+    : null;
+
+  if (sessionTabId) {
+    return {
+      next_tool: 'browser_reuse_tab',
+      args_seed: { tabId: sessionTabId },
+      reason: 'A previously active managed tab is known and can be reused directly.',
+      confidence: 'high',
+    };
+  }
+
+  if (availableTabs.length === 1 && Number.isFinite(availableTabs[0]?.tabId)) {
+    return {
+      next_tool: 'browser_reuse_tab',
+      args_seed: { tabId: Number(availableTabs[0].tabId) },
+      reason: 'Only one managed tab is visible, so reuse can continue on that tab deterministically.',
+      confidence: 'high',
+    };
+  }
+
+  return null;
+}
+
+function buildHandoffBlock({
+  ok,
+  wrapperTool,
+  payload = {},
+  sessionSnapshot = null,
+}) {
+  if (!ok) {
+    return null;
+  }
+
+  switch (wrapperTool) {
+    case 'browser_find':
+    case 'browser_read_page':
+      return inferHandoffFromReadLikeTool(wrapperTool, payload, sessionSnapshot);
+    case 'browser_open_or_focus':
+    case 'browser_create_tab':
+    case 'browser_navigate_tab':
+    case 'browser_reuse_tab':
+      return inferHandoffFromTabContinuity(payload, sessionSnapshot, 'browser_read_page');
+    case 'browser_form_input':
+      return inferHandoffFromFormInput(payload, sessionSnapshot);
+    case 'browser_snapshot':
+    case 'browser_tabs_context':
+      return inferHandoffFromContext(payload, sessionSnapshot);
+    default:
+      return null;
+  }
+}
+
 function summarizeErrorDetail(detail) {
   if (!detail || typeof detail !== 'object') {
     return null;
@@ -1484,6 +1631,7 @@ function buildFailureEnvelope(error, toolName, args = {}) {
         tabGroup: SESSION_CONTEXT.currentTabGroupId,
         error,
       }),
+      handoff: null,
     }),
     error: {
       code: error?.name ?? 'Error',
@@ -1675,6 +1823,12 @@ class ClaudeChromeAdapter {
         downstreamSummary,
         sessionSnapshot,
         tabGroup: effectiveTabGroup,
+      }),
+      handoff: buildHandoffBlock({
+        ok: true,
+        wrapperTool,
+        payload,
+        sessionSnapshot,
       }),
       payload,
     });
@@ -3797,5 +3951,6 @@ export const __test__ = {
   SessionContextManager,
   buildResultEnvelope,
   buildSummaryBlock,
+  buildHandoffBlock,
   BridgeError,
 };

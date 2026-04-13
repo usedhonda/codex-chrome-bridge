@@ -66,6 +66,12 @@ test('buildResultEnvelope normalizes common top-level fields', () => {
       next_hint: 'Continue on tab 42.',
       recovery_hint: null,
     },
+    handoff: {
+      next_tool: 'browser_read_page',
+      args_seed: { tabId: 42 },
+      reason: 'The active managed tab is known, so the next tool can continue on the same tab.',
+      confidence: 'high',
+    },
     payload: { tabId: 42, action_taken: 'navigate' },
   });
 
@@ -85,6 +91,12 @@ test('buildResultEnvelope normalizes common top-level fields', () => {
       permission_state: 'not_required',
       next_hint: 'Continue on tab 42.',
       recovery_hint: null,
+    },
+    handoff: {
+      next_tool: 'browser_read_page',
+      args_seed: { tabId: 42 },
+      reason: 'The active managed tab is known, so the next tool can continue on the same tab.',
+      confidence: 'high',
     },
     tabId: 42,
     action_taken: 'navigate',
@@ -115,6 +127,77 @@ test('buildSummaryBlock emits permission and ref-driven hints', () => {
     permission_state: 'not_required',
     next_hint: 'Use returned refs with browser_click, browser_form_input, or browser_computer.',
     recovery_hint: null,
+  });
+});
+
+test('buildHandoffBlock uses observed refs for read-like tool handoff', () => {
+  const handoff = __test__.buildHandoffBlock({
+    ok: true,
+    wrapperTool: 'browser_find',
+    payload: {
+      tabId: 88,
+      result: {
+        matches: [
+          { ref: 'ref_21', text: 'Search button' },
+        ],
+      },
+    },
+    sessionSnapshot: {
+      lastActiveTabId: 88,
+    },
+  });
+
+  assert.deepEqual(handoff, {
+    next_tool: 'browser_click',
+    args_seed: {
+      tabId: 88,
+      ref: 'ref_21',
+    },
+    reason: 'Observed refs can flow directly into a ref-targeted action.',
+    confidence: 'high',
+  });
+});
+
+test('buildHandoffBlock uses tab continuity for open-or-focus handoff', () => {
+  const handoff = __test__.buildHandoffBlock({
+    ok: true,
+    wrapperTool: 'browser_open_or_focus',
+    payload: {
+      tabId: 91,
+      target: 'https://example.org/',
+    },
+    sessionSnapshot: {
+      lastActiveTabId: 91,
+    },
+  });
+
+  assert.deepEqual(handoff, {
+    next_tool: 'browser_read_page',
+    args_seed: { tabId: 91 },
+    reason: 'The active managed tab is known, so the next tool can continue on the same tab.',
+    confidence: 'high',
+  });
+});
+
+test('buildHandoffBlock prefers reuse_tab for snapshot continuity', () => {
+  const handoff = __test__.buildHandoffBlock({
+    ok: true,
+    wrapperTool: 'browser_snapshot',
+    payload: {
+      browser_context: {
+        availableTabs: [{ tabId: 55, title: 'Only tab', url: 'https://example.org/' }],
+      },
+    },
+    sessionSnapshot: {
+      lastActiveTabId: null,
+    },
+  });
+
+  assert.deepEqual(handoff, {
+    next_tool: 'browser_reuse_tab',
+    args_seed: { tabId: 55 },
+    reason: 'Only one managed tab is visible, so reuse can continue on that tab deterministically.',
+    confidence: 'high',
   });
 });
 
