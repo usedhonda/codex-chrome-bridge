@@ -46,6 +46,14 @@ Inside that wrapper, the browser surface now carries a little more local orchest
 
 ---
 
+## What's new in v0.2.0
+
+- **Session context manager** — wrapper state now keeps session identity, active tab continuity, tab-group continuity, and downstream hints in one place
+- **Bridge-style result summaries** — tool results include a small `summary` block with `primary`, `permission_state`, `next_hint`, and `recovery_hint`
+- **Task handoff hints** — some results now carry a thin `handoff` seed (`next_tool`, `args_seed`, `confidence`) to make the next browser call more obvious
+
+---
+
 ## What makes this different
 
 |                              | Typical browser MCP            | codex-chrome-bridge                   |
@@ -242,7 +250,7 @@ In this mode, the browser workflow is still **Codex-driven**. You are not expect
 ### Key design decisions
 
 - **Zero dependencies** — only Node.js built-ins (`child_process`, `fs`, `net`, `os`, `path`, `crypto`)
-- **Single file** — `src/bridge.js` (~2900 lines), no build step, no transpilation
+- **Single file** — `src/bridge.js` (~3900 lines), no build step, no transpilation
 - **Socket discovery** — finds the live native-host socket via `ps` process inspection
 - **Session scoping** — each MCP session gets its own `sessionId` and `displayName`
 - **Local orchestration hints** — result envelopes carry normalized session state, bridge-style summaries, and thin next-step handoff hints
@@ -273,6 +281,9 @@ This wrapper works well in practice, but the downstream contract is private:
 - **Permission popups** — CiC's permission choreography still applies (`ALWAYS`/`ONCE` grants, domain transitions)
 - **Session coupling** — the bridge requires a running Claude native-host process
 - **macOS only** — the native-messaging manifest path is macOS-specific for now
+- **Bridge token acquisition stays outside the wrapper** — OAuth/profile lookup (`/api/oauth/profile` -> `account.uuid`) belongs to the original bridge path, not this wrapper
+- **Pairing server-side semantics remain opaque** — client-side confirm/dismiss edges are source-confirmed, but the remote pairing contract is still not fully inspectable from the wrapper side
+- **Remote bridge control-plane is intentionally out of scope** — sidepanel -> remote `tool_call` initiation belongs to the original bridge orchestration and is not recreated by this wrapper-only design
 
 See [Known Limitations](./docs/known-limitations.md) and [Compatibility](./docs/compatibility.md) for details.
 
@@ -301,6 +312,13 @@ See [Troubleshooting](./docs/troubleshooting.md) for more.
 | [Known Limitations](./docs/known-limitations.md) | Power-user caveats |
 | [Troubleshooting](./docs/troubleshooting.md) | Problem solving |
 | [Version Matrix](./compat/version-matrix.json) | Validated extension/launcher baselines |
+
+---
+
+## Changelog
+
+- **v0.2.0** — added session context management, bridge-style result summaries, task handoff hints, and clearer bridge-boundary limitation docs
+- **v0.1.1** — initial npm package release with 22 MCP tools plus `probe`, `validate`, and `compat`
 
 ---
 
