@@ -3914,9 +3914,21 @@ async function main() {
   process.exitCode = 1;
 }
 
-const isMainModule =
-  typeof process.argv[1] === 'string' &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+function isMainModulePath(argvPath, moduleUrl = import.meta.url) {
+  if (typeof argvPath !== 'string') {
+    return false;
+  }
+
+  try {
+    const resolvedArgvPath = fs.realpathSync(argvPath);
+    const resolvedModulePath = fs.realpathSync(fileURLToPath(moduleUrl));
+    return resolvedArgvPath === resolvedModulePath;
+  } catch {
+    return false;
+  }
+}
+
+const isMainModule = isMainModulePath(process.argv[1], import.meta.url);
 
 if (isMainModule) {
   main().catch((error) => {
@@ -3953,4 +3965,5 @@ export const __test__ = {
   buildSummaryBlock,
   buildHandoffBlock,
   BridgeError,
+  isMainModulePath,
 };

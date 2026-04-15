@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { __test__ } from '../src/bridge.js';
 
@@ -151,4 +154,19 @@ test('coordinate and region normalizers accept supported aliases and fail closed
 test('tool recovery support excludes tabs_context_mcp itself', () => {
   assert.equal(__test__.toolSupportsSessionContextRecovery('tabs_context_mcp'), false);
   assert.equal(__test__.toolSupportsSessionContextRecovery('browser_click'), true);
+});
+
+test('main-module detection follows symlinked npm bin paths', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccb-main-module-'));
+  const realFile = path.join(tempDir, 'real-entry.js');
+  const symlinkFile = path.join(tempDir, 'symlink-entry.js');
+  fs.writeFileSync(realFile, '// test entry\n', 'utf8');
+  fs.symlinkSync(realFile, symlinkFile);
+
+  try {
+    assert.equal(__test__.isMainModulePath(symlinkFile, new URL(`file://${realFile}`)), true);
+    assert.equal(__test__.isMainModulePath(path.join(tempDir, 'missing.js'), new URL(`file://${realFile}`)), false);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
