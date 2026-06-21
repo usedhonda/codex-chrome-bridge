@@ -33,6 +33,19 @@
         "Live validator passed separately in the same environment.",
         "Full release:gate:live passed after broadening hover validation to accept the observed hover-event family."
       ]
+    },
+    {
+      "name": "2026-06-21-local-baseline",
+      "extensionVersion": "1.0.77",
+      "launcherVersion": "2.1.185",
+      "liveHostVersion": "2.1.185",
+      "status": "validated",
+      "notes": [
+        "Re-validated after Claude Code and Claude-in-Chrome auto-updates (previous baseline was launcher 2.1.104 / extension 1.0.66).",
+        "All 6 required contract markers still present in extension 1.0.77; check-compatibility decision was document-limitation (warnings only, no contract-marker drift).",
+        "Popup-safe validate-bridge passed end-to-end: initialize, tools/list (22 tools), tabs_context, create/navigate/close tab, health (connect_ok + status_ok), snapshot, missing-host fail-closed, and bogus-candidate rejection.",
+        "Chrome was restarted during this session and the native host respawned at 2.1.185, so launcher and live host now match with no version skew; behavior never diverged during the brief pre-restart skew."
+      ]
     }
   ]
 }

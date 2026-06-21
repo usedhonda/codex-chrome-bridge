@@ -36,3 +36,24 @@ test('compatibility matrix records current validated local baseline', async () =
     },
   );
 });
+
+test('compatibility matrix records the 2026-06-21 post-update validated baseline', async () => {
+  const matrix = JSON.parse(await fs.readFile(matrixPath, 'utf8'));
+  const baseline = matrix.validatedBaselines.find(
+    (entry) => entry.name === '2026-06-21-local-baseline',
+  );
+  assert.deepEqual(
+    {
+      extensionVersion: baseline?.extensionVersion,
+      launcherVersion: baseline?.launcherVersion,
+      liveHostVersion: baseline?.liveHostVersion,
+      status: baseline?.status,
+    },
+    {
+      extensionVersion: '1.0.77',
+      launcherVersion: '2.1.185',
+      liveHostVersion: '2.1.185',
+      status: 'validated',
+    },
+  );
+});
