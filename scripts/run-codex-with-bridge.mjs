@@ -61,6 +61,12 @@ const bridgeEnvKeys = [
   'CLAUDE_BRIDGE_SOCKET_ROOT',
   'CLAUDE_BRIDGE_TOOL_TIMEOUT_MS',
 ];
+const codexModeConfig = [
+  ['model', 'CODEX_BRIDGE_MODEL', 'gpt-5.5'],
+  ['model_reasoning_effort', 'CODEX_BRIDGE_MODEL_REASONING_EFFORT', 'high'],
+  ['plan_mode_reasoning_effort', 'CODEX_BRIDGE_PLAN_MODE_REASONING_EFFORT', 'high'],
+  ['service_tier', 'CODEX_BRIDGE_SERVICE_TIER', 'fast'],
+];
 
 function tomlString(value) {
   return JSON.stringify(String(value));
@@ -76,14 +82,111 @@ function tomlInlineTable(entries) {
     .join(',')}}`;
 }
 
+function readTomlStringValue(configText, key) {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = configText.match(new RegExp(`^${escapedKey}\\s*=\\s*"([^"]*)"\\s*$`, 'm'));
+  return match?.[1] ?? null;
+}
+
+async function readUserCodexModeConfig() {
+  try {
+    const configText = await fs.readFile(path.join(userCodexHome, 'config.toml'), 'utf8');
+    return Object.fromEntries(
+      codexModeConfig
+        .map(([key]) => [key, readTomlStringValue(configText, key)])
+        .filter(([, value]) => typeof value === 'string' && value.length > 0),
+    );
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return {};
+    }
+    throw error;
+  }
+}
+
+function hasModelArg(args) {
+  return args.some((arg) => {
+    if (arg === '-m' || arg === '--model') {
+      return true;
+    }
+    if (arg.startsWith('--model=')) {
+      return true;
+    }
+    return arg.startsWith('-m') && arg.length > 2;
+  });
+}
+
+function hasProfileArg(args) {
+  return args.some((arg) => {
+    if (arg === '-p' || arg === '--profile') {
+      return true;
+    }
+    if (arg.startsWith('--profile=')) {
+      return true;
+    }
+    return arg.startsWith('-p') && arg.length > 2;
+  });
+}
+
+function extractExplicitConfigKeys(args) {
+  const keys = new Set();
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    let value = null;
+    if (arg === '-c' || arg === '--config') {
+      value = args[index + 1] ?? null;
+      index += 1;
+    } else if (arg.startsWith('--config=')) {
+      value = arg.slice('--config='.length);
+    }
+
+    if (!value) {
+      continue;
+    }
+
+    const key = value.split('=', 1)[0]?.trim();
+    if (key) {
+      keys.add(key);
+    }
+  }
+
+  return keys;
+}
+
+function buildCodexModeArgs(args, userConfig) {
+  if (hasProfileArg(args)) {
+    return [];
+  }
+
+  const explicitConfigKeys = extractExplicitConfigKeys(args);
+  const result = [];
+
+  for (const [key, envKey, fallbackValue] of codexModeConfig) {
+    if (explicitConfigKeys.has(key) || (key === 'model' && hasModelArg(args))) {
+      continue;
+    }
+
+    const value = process.env[envKey] || userConfig[key] || fallbackValue;
+    if (!value) {
+      continue;
+    }
+
+    result.push('-c', `${key}=${tomlString(value)}`);
+  }
+
+  return result;
+}
+
+const passthroughArgs = process.argv.slice(2);
+const userCodexModeConfig = await readUserCodexModeConfig();
 const serverEnvEntries = bridgeEnvKeys
   .map((key) => [key, process.env[key]])
   .filter(([, value]) => typeof value === 'string' && value.length > 0);
 
-const passthroughArgs = process.argv.slice(2);
 const isExecCommand = passthroughArgs.includes('exec');
 
 const injectedArgs = [
+  ...buildCodexModeArgs(passthroughArgs, userCodexModeConfig),
   '-c',
   `mcp_servers.${serverName}.command=${tomlString(process.execPath)}`,
   '-c',
