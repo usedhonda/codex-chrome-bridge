@@ -1,6 +1,9 @@
-# >>> project-bootstrap managed >>>
-.cc-status-bar.voice.json
-# <<< project-bootstrap managed <<<
-
 # Internal agent/codex logs
 docs/log/
+
+# >>> project-bootstrap local-only >>>
+CLAUDE.local.md
+.codex/config.toml
+.local/
+.cc-status-bar.voice.json
+# <<< project-bootstrap local-only <<<
