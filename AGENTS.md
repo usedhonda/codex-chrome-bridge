@@ -85,6 +85,12 @@ Prefer what is actually observable on this machine:
 - CLI behavior,
 - visible runtime artifacts.
 
+### Official interfaces beat reverse engineering
+
+When an official interface exists, use it instead of reverse engineering. If
+undocumented or reverse-engineered runtime behavior is unavoidable, isolate it
+behind an adapter and label that coupling clearly in both documentation and code.
+
 ### 3. Confirmed vs inferred must be explicit
 
 Always distinguish clearly between:
@@ -392,6 +398,9 @@ Implementation is allowed only after the investigation verdict is written into `
 - **RED** -> no implementation.
 
 There is no exception to this rule.
+Once an approved path meets its gate, continue through that path without asking
+for confirmation at every milestone. Interrupt only for a real blocker,
+destructive change, or permission that cannot be worked around safely.
 
 ---
 
